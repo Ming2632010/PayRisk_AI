@@ -4,10 +4,22 @@ import { api, type Subscription } from '../lib/api';
 
 /** URL of the website where users manage plans and billing (Opened in system browser for store compliance). */
 function getBillingWebsiteUrl(): string {
-  const base = typeof import.meta.env.VITE_APP_URL === 'string' && import.meta.env.VITE_APP_URL
-    ? import.meta.env.VITE_APP_URL.replace(/\/$/, '')
-    : (typeof window !== 'undefined' ? window.location.origin : '');
+  const base =
+    typeof import.meta.env.VITE_APP_URL === 'string' && import.meta.env.VITE_APP_URL
+      ? import.meta.env.VITE_APP_URL.replace(/\/$/, '')
+      : typeof window !== 'undefined'
+        ? window.location.origin
+        : '';
   return base ? `${base}?page=plan` : '';
+}
+
+/** True when running as a standalone PWA / app (store builds). When false, user is on the website in a browser and can use Stripe. */
+function isStandaloneApp(): boolean {
+  if (typeof window === 'undefined') return true;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as { standalone?: boolean }).standalone === true
+  );
 }
 
 const PLAN_ORDER: Subscription['plan'][] = ['starter', 'basic', 'professional', 'business'];
@@ -42,14 +54,8 @@ const UPGRADE_REASONS: Record<Subscription['plan'], string[]> = {
     'More emails per month (500 on Basic)',
     'Higher customer limits',
   ],
-  basic: [
-    'More emails (2,000) and SMS (200) on Professional',
-    'Better for growing teams',
-  ],
-  professional: [
-    'Maximum emails (6,000) and SMS (600) on Business',
-    'Best for high-volume use',
-  ],
+  basic: ['More emails (2,000) and SMS (200) on Professional', 'Better for growing teams'],
+  professional: ['Maximum emails (6,000) and SMS (600) on Business', 'Best for high-volume use'],
   business: [],
 };
 
@@ -94,7 +100,10 @@ export default function SubscriptionPlan() {
   function openBillingWebsite() {
     const url = getBillingWebsiteUrl();
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
-    else setError('Billing website URL is not configured. Set VITE_APP_URL or open the app from the web.');
+    else
+      setError(
+        'Billing website URL is not configured. Set VITE_APP_URL or open the app from the web.'
+      );
   }
 
   async function changePlan(plan: Subscription['plan']) {
@@ -103,7 +112,35 @@ export default function SubscriptionPlan() {
     const targetIndex = PLAN_ORDER.indexOf(plan);
     const isUpgradeToPaid = targetIndex > currentIndex && PLAN_PRICES[plan] !== '$0';
     if (isUpgradeToPaid) {
-      openBillingWebsite();
+      if (isStandaloneApp()) {
+        openBillingWebsite();
+        return;
+      }
+      setChanging(plan);
+      setError(null);
+      try {
+        const { url } = await api.subscription.createCheckoutSession(plan);
+        if (url) {
+          window.location.href = url;
+          return;
+        }
+        setError('Checkout could not be started. Please try again or contact support.');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (
+          msg.includes('not configured') ||
+          msg.includes('503') ||
+          msg.includes('Billing is not configured')
+        ) {
+          setError(
+            'Payment is not set up yet. Add your Stripe keys (STRIPE_SECRET_KEY) to the server where your API runs to enable upgrades.'
+          );
+        } else {
+          setError(msg || 'Failed to start checkout');
+        }
+      } finally {
+        setChanging(null);
+      }
       return;
     }
     setChanging(plan);
@@ -130,7 +167,9 @@ export default function SubscriptionPlan() {
     <div className="space-y-8">
       <div>
         <h2 className="text-xl font-semibold text-gray-900">Your plan</h2>
-        <p className="text-sm text-gray-500 mt-1">Manage subscription and usage. Plans and billing are managed on our website.</p>
+        <p className="text-sm text-gray-500 mt-1">
+          Manage subscription and usage. Plans and billing are managed on our website.
+        </p>
       </div>
 
       {/* Current plan & usage */}
@@ -138,7 +177,9 @@ export default function SubscriptionPlan() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <p className="text-sm text-gray-500">Current plan</p>
-            <p className="text-lg font-semibold text-gray-900">{PLAN_LABELS[sub.plan]} — {PLAN_PRICES[sub.plan]}/mo</p>
+            <p className="text-lg font-semibold text-gray-900">
+              {PLAN_LABELS[sub.plan]} — {PLAN_PRICES[sub.plan]}/mo
+            </p>
           </div>
           <div className="flex gap-6">
             <div className="flex items-center gap-2">
@@ -158,7 +199,7 @@ export default function SubscriptionPlan() {
         {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
       </div>
 
-      {/* Upgrade – open website in system browser (App Store / Google Play compliant) */}
+      {/* Upgrade – on website: per-plan buttons to Stripe; in standalone app: single "Open website" button (store compliant) */}
       {upgradePlans.length > 0 && (
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
@@ -173,17 +214,37 @@ export default function SubscriptionPlan() {
               </li>
             ))}
           </ul>
-          <p className="text-sm text-gray-600 mb-3">
-            To upgrade, manage your plan, or pay for a subscription, use our website. Plans and billing are not processed in this app.
-          </p>
-          <button
-            type="button"
-            onClick={openBillingWebsite}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-          >
-            <ExternalLink className="w-4 h-4 shrink-0" />
-            Open website to upgrade or manage billing
-          </button>
+          {isStandaloneApp() ? (
+            <>
+              <p className="text-sm text-gray-600 mb-3">
+                To upgrade, manage your plan, or pay for a subscription, use our website. Plans and
+                billing are not processed in this app.
+              </p>
+              <button
+                type="button"
+                onClick={openBillingWebsite}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+              >
+                <ExternalLink className="w-4 h-4 shrink-0" />
+                Open website to upgrade or manage billing
+              </button>
+            </>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              {upgradePlans.map((plan) => (
+                <button
+                  key={plan}
+                  onClick={() => changePlan(plan)}
+                  disabled={changing !== null}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  {changing === plan
+                    ? 'Redirecting...'
+                    : `Upgrade to ${PLAN_LABELS[plan]} (${PLAN_PRICES[plan]}/mo)`}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -203,7 +264,9 @@ export default function SubscriptionPlan() {
                 disabled={changing !== null}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 text-sm"
               >
-                {changing === plan ? 'Updating...' : `Switch to ${PLAN_LABELS[plan]} (${PLAN_PRICES[plan]}/mo)`}
+                {changing === plan
+                  ? 'Updating...'
+                  : `Switch to ${PLAN_LABELS[plan]} (${PLAN_PRICES[plan]}/mo)`}
               </button>
             ))}
           </div>
