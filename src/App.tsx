@@ -13,6 +13,29 @@ import InvoiceTemplateSettings from './components/InvoiceTemplateSettings';
 
 type Page = 'dashboard' | 'customers' | 'email-settings' | 'invoice' | 'custom-rules' | 'plan';
 
+const VALID_PAGES: Page[] = [
+  'dashboard',
+  'customers',
+  'email-settings',
+  'invoice',
+  'custom-rules',
+  'plan',
+];
+
+/** Keep the address bar in sync with the active section (Stripe redirects use ?page=plan&cancel=1, etc.). */
+function syncPageToUrl(page: Page) {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('success');
+  url.searchParams.delete('cancel');
+  if (page === 'dashboard') {
+    url.search = '';
+  } else {
+    url.searchParams.set('page', page);
+  }
+  const qs = url.searchParams.toString();
+  window.history.replaceState({}, '', url.pathname + (qs ? `?${qs}` : ''));
+}
+
 function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,12 +47,19 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     const params = new URLSearchParams(window.location.search);
-    const page = params.get('page') as Page | null;
-    if (page && ['dashboard', 'customers', 'email-settings', 'invoice', 'custom-rules', 'plan'].includes(page)) {
-      setCurrentPage(page);
-    }
+    const raw = params.get('page');
+    const next: Page =
+      raw && VALID_PAGES.includes(raw as Page) ? (raw as Page) : 'dashboard';
+    setCurrentPage(next);
+    syncPageToUrl(next);
   }, [user]);
+
+  function navigateTo(page: Page) {
+    setCurrentPage(page);
+    syncPageToUrl(page);
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -87,7 +117,7 @@ function App() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setCurrentPage('dashboard')}
+                  onClick={() => navigateTo('dashboard')}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                     currentPage === 'dashboard'
                       ? 'bg-blue-50 text-blue-600 font-medium'
@@ -98,7 +128,7 @@ function App() {
                   Dashboard
                 </button>
                 <button
-                  onClick={() => setCurrentPage('customers')}
+                  onClick={() => navigateTo('customers')}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                     currentPage === 'customers'
                       ? 'bg-blue-50 text-blue-600 font-medium'
@@ -109,7 +139,7 @@ function App() {
                   Customers
                 </button>
                 <button
-                  onClick={() => setCurrentPage('email-settings')}
+                  onClick={() => navigateTo('email-settings')}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                     currentPage === 'email-settings'
                       ? 'bg-blue-50 text-blue-600 font-medium'
@@ -120,7 +150,7 @@ function App() {
                   Email Templates
                 </button>
                 <button
-                  onClick={() => setCurrentPage('invoice')}
+                  onClick={() => navigateTo('invoice')}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                     currentPage === 'invoice'
                       ? 'bg-blue-50 text-blue-600 font-medium'
@@ -131,7 +161,7 @@ function App() {
                   Invoice
                 </button>
                 <button
-                  onClick={() => setCurrentPage('custom-rules')}
+                  onClick={() => navigateTo('custom-rules')}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                     currentPage === 'custom-rules'
                       ? 'bg-blue-50 text-blue-600 font-medium'
@@ -142,7 +172,7 @@ function App() {
                   Custom Rules
                 </button>
                 <button
-                  onClick={() => setCurrentPage('plan')}
+                  onClick={() => navigateTo('plan')}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                     currentPage === 'plan'
                       ? 'bg-blue-50 text-blue-600 font-medium'
@@ -178,7 +208,7 @@ function App() {
               </span>
             </div>
             <button
-              onClick={() => setCurrentPage('customers')}
+              onClick={() => navigateTo('customers')}
               className="text-sm font-medium text-amber-800 underline hover:no-underline"
             >
               Go to Customers to send reminder or SMS

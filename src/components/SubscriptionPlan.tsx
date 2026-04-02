@@ -79,7 +79,13 @@ export default function SubscriptionPlan() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success') === '1') {
-      window.history.replaceState({}, '', window.location.pathname);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('success');
+      if (!url.searchParams.get('page')) {
+        url.searchParams.set('page', 'plan');
+      }
+      const qs = url.searchParams.toString();
+      window.history.replaceState({}, '', url.pathname + (qs ? `?${qs}` : ''));
       load();
     }
   }, []);
