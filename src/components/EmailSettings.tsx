@@ -59,6 +59,16 @@ export default function EmailSettings() {
         <h1 className="text-2xl font-bold text-gray-900">Email Templates</h1>
         <p className="text-gray-600">Customize the emails that will be sent when you use Send Reminder or Send Offer.</p>
       </div>
+      <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 space-y-2">
+        <p className="font-medium text-slate-800">How customers see your emails</p>
+        <p>
+          Messages are delivered through PayRisk using your server&apos;s verified sender address. The inbox shows your{' '}
+          <strong>company name from the Invoice template</strong> as the sender name when you have saved one; otherwise a short name is derived from your login email.
+        </p>
+        <p>
+          When a customer uses <strong>Reply</strong>, the message goes to the <strong>business email on your Invoice template</strong> when you have entered a valid address there; otherwise to your <strong>PayRisk account email</strong>. That applies to reminder, offer, and invoice emails.
+        </p>
+      </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
 
       {/* Payment Reminder Template */}

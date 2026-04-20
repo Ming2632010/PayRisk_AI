@@ -81,6 +81,9 @@ export default function InvoiceTemplateSettings() {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg"
             placeholder="billing@acme.com"
           />
+          <p className="text-xs text-gray-500 mt-1.5">
+            Shown on the invoice. If this is a valid address, customer <strong>Reply</strong> on reminder, offer, and invoice emails goes here; otherwise replies go to your PayRisk login email.
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>

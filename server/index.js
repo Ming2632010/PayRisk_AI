@@ -213,6 +213,50 @@ const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_T
   : null;
 const twilioPhone = process.env.TWILIO_PHONE_NUMBER || '';
 
+/** Option A: platform From (verified in Resend) + merchant Reply-To. */
+const REPLY_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+
+function isValidReplyEmail(s) {
+  return REPLY_EMAIL_RE.test(String(s ?? '').trim());
+}
+
+function friendlyFromLogin(loginEmail) {
+  const local = String(loginEmail ?? '').trim().split('@')[0] || '';
+  if (!local) return 'Your business';
+  return local.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function sanitizeDisplayName(name) {
+  let s = String(name ?? '').trim().replace(/[\r\n]+/g, ' ');
+  s = s.replace(/[<>"\\]/g, '').trim().slice(0, 78);
+  return s;
+}
+
+function parseInvoiceTemplateForSender(inv) {
+  if (typeof inv !== 'object' || inv === null) {
+    return { company_name: '', reply_email: '' };
+  }
+  return {
+    company_name: String(inv.company_name ?? '').trim(),
+    reply_email: String(inv.email ?? '').trim(),
+  };
+}
+
+/** Reply-To for all customer-facing mail: invoice template email if valid, else login email. */
+function merchantReplyTo(invSnip, loginEmail) {
+  if (isValidReplyEmail(invSnip.reply_email)) return invSnip.reply_email.trim().toLowerCase();
+  return loginEmail;
+}
+
+/** Resend `from`: optional "Name <email@verified.domain>"; if env is already "Name <...>", pass through. */
+function formatResendFrom(displayName, bareFrom) {
+  const addr = String(bareFrom ?? '').trim() || 'onboarding@resend.dev';
+  if (addr.includes('<') && addr.includes('>')) return addr;
+  const dn = sanitizeDisplayName(displayName);
+  if (dn) return `${dn} <${addr}>`;
+  return addr;
+}
+
 // --- Subscription & due today ---
 app.get('/api/subscription', async (req, res) => {
   try {
@@ -454,19 +498,29 @@ app.post('/api/customers/:id/send-reminder', async (req, res) => {
     const dueStr = dueDateStr ? ` by ${dueDateStr}` : '';
     let subject = DEFAULT_REMINDER.subject;
     let htmlBody = DEFAULT_REMINDER.body;
+    let invSnip = { company_name: '', reply_email: '' };
     try {
-      const tRows = await sql`SELECT reminder_template FROM users WHERE id = ${req.userId}`;
+      const tRows = await sql`SELECT reminder_template, invoice_template FROM users WHERE id = ${req.userId}`;
+      invSnip = parseInvoiceTemplateForSender(tRows[0]?.invoice_template);
       const t = tRows[0]?.reminder_template;
       if (typeof t === 'object' && t !== null && t.subject) {
         subject = t.subject;
         htmlBody = t.body ?? '';
       }
     } catch (_) { /* columns may not exist yet; use defaults */ }
-    const vars = { customer_name: c.name, amount: `$${amountOwed.toFixed(2)}`, due_date: dueStr, your_name: 'Your team' };
+    const senderLabel = invSnip.company_name || friendlyFromLogin(req.userEmail);
+    const vars = {
+      customer_name: c.name,
+      amount: `$${amountOwed.toFixed(2)}`,
+      due_date: dueStr,
+      your_name: senderLabel,
+    };
     const html = `<p>${applyEmailTemplate(htmlBody, vars).replace(/<br>/g, '</p><p>')}</p>`;
+    const replyTo = merchantReplyTo(invSnip, req.userEmail);
     const { error } = await resendApi.emails.send({
-      from: fromEmail,
+      from: formatResendFrom(senderLabel, fromEmail),
       to: c.email,
+      replyTo,
       subject: applyEmailTemplate(subject, vars),
       html,
     });
@@ -490,19 +544,28 @@ app.post('/api/customers/:id/send-offer', async (req, res) => {
     if (!resendApi) return res.status(503).json({ error: 'Email is not configured. Set RESEND_API_KEY and FROM_EMAIL in server environment.' });
     let subject = DEFAULT_OFFER.subject;
     let htmlBody = DEFAULT_OFFER.body;
+    let invSnip = { company_name: '', reply_email: '' };
     try {
-      const tRows = await sql`SELECT offer_template FROM users WHERE id = ${req.userId}`;
+      const tRows = await sql`SELECT offer_template, invoice_template FROM users WHERE id = ${req.userId}`;
+      invSnip = parseInvoiceTemplateForSender(tRows[0]?.invoice_template);
       const t = tRows[0]?.offer_template;
       if (typeof t === 'object' && t !== null && t.subject) {
         subject = t.subject;
         htmlBody = t.body ?? '';
       }
     } catch (_) { /* columns may not exist yet; use defaults */ }
-    const vars = { customer_name: c.name, offer_details: 'contact us for details', your_name: 'Your team' };
+    const senderLabel = invSnip.company_name || friendlyFromLogin(req.userEmail);
+    const vars = {
+      customer_name: c.name,
+      offer_details: 'contact us for details',
+      your_name: senderLabel,
+    };
     const html = `<p>${applyEmailTemplate(htmlBody, vars).replace(/<br>/g, '</p><p>')}</p>`;
+    const replyTo = merchantReplyTo(invSnip, req.userEmail);
     const { error } = await resendApi.emails.send({
-      from: fromEmail,
+      from: formatResendFrom(senderLabel, fromEmail),
       to: c.email,
+      replyTo,
       subject: applyEmailTemplate(subject, vars),
       html,
     });
@@ -714,9 +777,13 @@ app.post('/api/customers/:id/send-invoice', async (req, res) => {
       : {};
     if (!resendApi) return res.status(503).json({ error: 'Email is not configured. Set RESEND_API_KEY and FROM_EMAIL in server environment.' });
     const html = buildInvoiceHtml(customer, txRows, template);
+    const invSnip = parseInvoiceTemplateForSender(template);
+    const senderLabel = invSnip.company_name || friendlyFromLogin(req.userEmail);
+    const replyTo = merchantReplyTo(invSnip, req.userEmail);
     const { error } = await resendApi.emails.send({
-      from: fromEmail,
+      from: formatResendFrom(senderLabel, fromEmail),
       to: customer.email,
+      replyTo,
       subject: `Invoice from ${template.company_name || 'Us'} – $${(Number(customer.amount_owed) || 0).toFixed(2)} due`,
       html,
     });
