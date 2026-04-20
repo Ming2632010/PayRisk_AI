@@ -30,6 +30,11 @@ export default function InvoiceTemplateSettings() {
     try {
       await api.invoiceTemplate.save(template);
       setMessage('Business profile saved. It will be used on invoices and on emails you send to customers.');
+      try {
+        window.dispatchEvent(new Event('business-profile-updated'));
+      } catch (_err) {
+        /* safe to ignore: only affects header label refresh */
+      }
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Failed to save');
     } finally {

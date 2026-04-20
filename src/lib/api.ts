@@ -112,10 +112,19 @@ export const api = {
         method: 'POST',
         body: body || {},
       }),
-    sendInvoice: (id: number) =>
+    sendInvoice: (id: number, body?: { transaction_ids?: number[] }) =>
       request<{ sent: boolean; channel: string }>(`/api/customers/${id}/send-invoice`, {
         method: 'POST',
+        body: body || {},
       }),
+    invoicePreview: (id: number, body?: { transaction_ids?: number[] }) =>
+      request<{ html: string; subject: string; total: number; count: number }>(
+        `/api/customers/${id}/invoice-preview`,
+        {
+          method: 'POST',
+          body: body || {},
+        }
+      ),
   },
   notes: {
     list: (customerId: number) => request<unknown[]>(`/api/customers/${customerId}/notes`),

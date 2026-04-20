@@ -690,7 +690,7 @@ app.put('/api/invoice-template', async (req, res) => {
 });
 
 // --- Send invoice (email with invoice built from customer + transactions + template) ---
-function buildInvoiceHtml(customer, transactions, template) {
+function buildInvoiceHtml(customer, transactions, template, overrideTotal) {
   const company = template.company_name || 'Your Company';
   const contact = template.contact_name || '';
   const companyEmail = template.email || '';
@@ -703,12 +703,14 @@ function buildInvoiceHtml(customer, transactions, template) {
   const toAddress = [customer.street_address, [customer.city, customer.state_province, customer.postal_code].filter(Boolean).join(' '), customer.country].filter(Boolean).join('<br>');
   const invoiceDate = new Date().toISOString().slice(0, 10);
   const dueDate = customer.due_date ? String(customer.due_date).slice(0, 10) : invoiceDate;
-  const total = Number(customer.amount_owed) || 0;
   const rows = (transactions || []).map((t) => ({
     date: String(t.date).slice(0, 10),
     description: t.description || 'Order',
     amount: Number(t.amount) || 0,
   }));
+  const total = typeof overrideTotal === 'number' && Number.isFinite(overrideTotal)
+    ? overrideTotal
+    : rows.reduce((s, r) => s + r.amount, 0);
   const rowsHtml = rows.length > 0
     ? rows.map((r) => `<tr><td>${r.date}</td><td>${r.description}</td><td style="text-align:right">$${r.amount.toFixed(2)}</td></tr>`).join('')
     : `<tr><td colspan="3">No line items</td></tr>`;
@@ -755,28 +757,81 @@ function escapeHtml(s) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** Normalize & validate transaction_ids from request body (array of positive numbers). Returns [] if not provided. */
+function parseTransactionIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+}
+
+/**
+ * Load transactions for invoicing. When `ids.length > 0`, returns only those (scoped to customer/user).
+ * When `ids` is empty, falls back to all unpaid transactions (legacy behavior).
+ */
+async function fetchInvoiceTransactions(customerId, userId, ids) {
+  if (Array.isArray(ids) && ids.length > 0) {
+    return await sql`
+      SELECT id, date, amount, description, paid_fully
+      FROM transactions
+      WHERE customer_id = ${customerId} AND user_id = ${userId} AND id = ANY(${ids})
+      ORDER BY date DESC
+    `;
+  }
+  return await sql`
+    SELECT id, date, amount, description, paid_fully
+    FROM transactions
+    WHERE customer_id = ${customerId} AND user_id = ${userId} AND COALESCE(paid_fully, false) = false
+    ORDER BY date DESC
+  `;
+}
+
+async function loadCustomerForInvoice(id, userId) {
+  const rows = await sql`
+    SELECT id, name, email, company, street_address, city, state_province, postal_code, country, amount_owed, due_date
+    FROM customers WHERE id = ${id} AND user_id = ${userId}
+  `;
+  return rows[0] || null;
+}
+
+async function loadInvoiceTemplate(userId) {
+  const userRows = await sql`SELECT invoice_template FROM users WHERE id = ${userId}`;
+  return (userRows[0]?.invoice_template && typeof userRows[0].invoice_template === 'object')
+    ? userRows[0].invoice_template
+    : {};
+}
+
+// Read-only: returns invoice HTML + total + subject for the chosen transactions so the UI can preview before sending.
+app.post('/api/customers/:id/invoice-preview', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const customer = await loadCustomerForInvoice(id, req.userId);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    const ids = parseTransactionIds(req.body?.transaction_ids);
+    const txRows = await fetchInvoiceTransactions(id, req.userId, ids);
+    const template = await loadInvoiceTemplate(req.userId);
+    const total = txRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const html = buildInvoiceHtml(customer, txRows, template, total);
+    const subject = `Invoice from ${template.company_name || 'Us'} – $${total.toFixed(2)} due`;
+    res.json({ html, subject, total, count: txRows.length });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/customers/:id/send-invoice', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const check = await canSendEmail(req.userId);
     if (!check.ok) return res.status(403).json({ error: check.error });
-    const custRows = await sql`
-      SELECT id, name, email, company, street_address, city, state_province, postal_code, country, amount_owed, due_date
-      FROM customers WHERE id = ${id} AND user_id = ${req.userId}
-    `;
-    if (custRows.length === 0) return res.status(404).json({ error: 'Customer not found' });
-    const customer = custRows[0];
-    const txRows = await sql`
-      SELECT date, amount, description FROM transactions
-      WHERE customer_id = ${id} AND user_id = ${req.userId} AND COALESCE(paid_fully, false) = false
-      ORDER BY date DESC
-    `;
-    const userRows = await sql`SELECT invoice_template FROM users WHERE id = ${req.userId}`;
-    const template = (userRows[0]?.invoice_template && typeof userRows[0].invoice_template === 'object')
-      ? userRows[0].invoice_template
-      : {};
+    const customer = await loadCustomerForInvoice(id, req.userId);
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    const ids = parseTransactionIds(req.body?.transaction_ids);
+    const txRows = await fetchInvoiceTransactions(id, req.userId, ids);
+    if (txRows.length === 0) return res.status(400).json({ error: 'No transactions selected for this invoice.' });
+    const template = await loadInvoiceTemplate(req.userId);
     if (!resendApi) return res.status(503).json({ error: 'Email is not configured. Set RESEND_API_KEY and FROM_EMAIL in server environment.' });
-    const html = buildInvoiceHtml(customer, txRows, template);
+    const total = txRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const html = buildInvoiceHtml(customer, txRows, template, total);
     const invSnip = parseInvoiceTemplateForSender(template);
     const senderLabel = invSnip.company_name || friendlyFromLogin(req.userEmail);
     const replyTo = merchantReplyTo(invSnip, req.userEmail);
@@ -784,7 +839,7 @@ app.post('/api/customers/:id/send-invoice', async (req, res) => {
       from: formatResendFrom(senderLabel, fromEmail),
       to: customer.email,
       replyTo,
-      subject: `Invoice from ${template.company_name || 'Us'} – $${(Number(customer.amount_owed) || 0).toFixed(2)} due`,
+      subject: `Invoice from ${template.company_name || 'Us'} – $${total.toFixed(2)} due`,
       html,
     });
     if (error) return res.status(500).json({ error: error.message || 'Failed to send email' });

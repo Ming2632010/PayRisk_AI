@@ -41,10 +41,39 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [dueToday, setDueToday] = useState<DueTodayResponse | null>(null);
+  const [businessName, setBusinessName] = useState<string>('');
 
   useEffect(() => {
     checkUser();
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setBusinessName('');
+      return;
+    }
+    let alive = true;
+    const load = () => {
+      api.invoiceTemplate
+        .get()
+        .then((t) => {
+          if (!alive) return;
+          setBusinessName(String(t?.company_name ?? '').trim());
+        })
+        .catch(() => {
+          if (alive) setBusinessName('');
+        });
+    };
+    load();
+    function onUpdate() {
+      load();
+    }
+    window.addEventListener('business-profile-updated', onUpdate);
+    return () => {
+      alive = false;
+      window.removeEventListener('business-profile-updated', onUpdate);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -185,7 +214,17 @@ function App() {
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <div className="text-sm text-gray-600">{user.email}</div>
+              <div
+                className="text-right leading-tight"
+                title={businessName ? `Signed in as ${user.email}` : undefined}
+              >
+                <div className="text-sm font-medium text-gray-900">
+                  {businessName || user.email}
+                </div>
+                {businessName && (
+                  <div className="text-xs text-gray-500">{user.email}</div>
+                )}
+              </div>
               <button
                 onClick={handleSignOut}
                 className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"

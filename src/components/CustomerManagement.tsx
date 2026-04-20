@@ -17,6 +17,7 @@ import { TagSelector } from './TagSelector';
 import { TransactionHistory } from './TransactionHistory';
 import { CustomerNotes } from './CustomerNotes';
 import { DataImportExport } from './DataImportExport';
+import SendInvoiceModal from './SendInvoiceModal';
 import {
   calculateRiskScore,
   calculateRepurchaseScore,
@@ -66,6 +67,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
   const [sendingAction, setSendingAction] = useState<
     'reminder' | 'offer' | 'sms' | 'invoice' | null
   >(null);
+  const [invoiceModalCustomer, setInvoiceModalCustomer] = useState<CustomerNew | null>(null);
 
   function normalizeNullableText(value: string): string | null {
     const trimmed = value.trim();
@@ -413,24 +415,16 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
     }
   }
 
-  async function handleSendInvoice(customer: CustomerNew) {
-    if (
-      !confirm(
-        `Send invoice to ${customer.name} at ${customer.email}? The email will include their outstanding balance and line items from transactions.`
-      )
-    )
-      return;
-    setSendingAction('invoice');
-    try {
-      await api.customers.sendInvoice(customer.id);
-      alert(`Invoice sent by email to ${customer.name}.`);
-      loadCustomers();
-      onDueTodayRefresh?.();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to send invoice');
-    } finally {
-      setSendingAction(null);
-    }
+  function handleSendInvoice(customer: CustomerNew) {
+    setInvoiceModalCustomer(customer);
+  }
+
+  function handleInvoiceSent() {
+    const name = invoiceModalCustomer?.name;
+    setInvoiceModalCustomer(null);
+    if (name) alert(`Invoice sent by email to ${name}.`);
+    loadCustomers();
+    onDueTodayRefresh?.();
   }
 
   async function handleDelete(id: number) {
@@ -1076,6 +1070,18 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
           customers={customers}
           onImportSuccess={loadCustomers}
           onClose={() => setShowImportExport(false)}
+        />
+      )}
+
+      {invoiceModalCustomer && (
+        <SendInvoiceModal
+          customer={{
+            id: invoiceModalCustomer.id,
+            name: invoiceModalCustomer.name,
+            email: invoiceModalCustomer.email,
+          }}
+          onClose={() => setInvoiceModalCustomer(null)}
+          onSent={handleInvoiceSent}
         />
       )}
     </div>
