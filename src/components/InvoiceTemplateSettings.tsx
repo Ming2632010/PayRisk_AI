@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileText, Save } from 'lucide-react';
+import { Building2, Save } from 'lucide-react';
 import { api, type InvoiceTemplate } from '../lib/api';
 
 const defaultTemplate: InvoiceTemplate = {
@@ -29,7 +29,7 @@ export default function InvoiceTemplateSettings() {
     setMessage('');
     try {
       await api.invoiceTemplate.save(template);
-      setMessage('Invoice template saved. It will be used when you send an invoice to a customer.');
+      setMessage('Business profile saved. It will be used on invoices and on emails you send to customers.');
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Failed to save');
     } finally {
@@ -43,11 +43,29 @@ export default function InvoiceTemplateSettings() {
     <div className="max-w-2xl">
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-          <FileText className="w-5 h-5 text-blue-600" />
-          Invoice template
+          <Building2 className="w-5 h-5 text-blue-600" />
+          Business profile
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          Your company details appear on every invoice you send. Fill these in so customers see your name, contact info, and tax ID.
+          Your company details. Used for invoices you send and as the sender / reply address on reminder, offer, and invoice emails.
+        </p>
+      </div>
+
+      <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 space-y-2">
+        <p className="font-medium text-slate-800">How this info is used</p>
+        <ul className="list-disc list-inside space-y-1">
+          <li>
+            <strong>Company / business name</strong> – shown as the sender name in the inbox (e.g. <em>&quot;Acme Ltd&quot;</em>) and used for <code>&#123;&#123;your_name&#125;&#125;</code> in reminder / offer templates.
+          </li>
+          <li>
+            <strong>Email</strong> – used as <strong>Reply-To</strong> on reminder, offer, and invoice emails when valid; otherwise replies go to your PayRisk login email. Also shown on invoices.
+          </li>
+          <li>
+            <strong>Contact name, Phone, Address, Tax ID, Footer notes</strong> – printed on the invoice emails you send to customers.
+          </li>
+        </ul>
+        <p className="text-xs text-slate-500">
+          Tip: fill in the fields that represent <strong>your</strong> business — not the customer&apos;s. Each customer&apos;s own info is saved on their record.
         </p>
       </div>
 
@@ -82,7 +100,7 @@ export default function InvoiceTemplateSettings() {
             placeholder="billing@acme.com"
           />
           <p className="text-xs text-gray-500 mt-1.5">
-            Shown on the invoice. If this is a valid address, customer <strong>Reply</strong> on reminder, offer, and invoice emails goes here; otherwise replies go to your PayRisk login email.
+            When valid, customer <strong>Reply</strong> on reminder, offer, and invoice emails goes here. Otherwise replies go to your PayRisk login email. Also shown on invoices.
           </p>
         </div>
         <div>

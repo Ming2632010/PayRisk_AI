@@ -62,12 +62,20 @@ export default function EmailSettings() {
       <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 space-y-2">
         <p className="font-medium text-slate-800">How customers see your emails</p>
         <p>
-          Messages are delivered through PayRisk using your server&apos;s verified sender address. The inbox shows your{' '}
-          <strong>company name from the Invoice template</strong> as the sender name when you have saved one; otherwise a short name is derived from your login email.
+          Sender name and reply address come from your{' '}
+          <strong>Business profile</strong>. Set them there once, and reminder, offer, and invoice emails will all use:
         </p>
-        <p>
-          When a customer uses <strong>Reply</strong>, the message goes to the <strong>business email on your Invoice template</strong> when you have entered a valid address there; otherwise to your <strong>PayRisk account email</strong>. That applies to reminder, offer, and invoice emails.
-        </p>
+        <ul className="list-disc list-inside space-y-1">
+          <li>
+            <strong>From</strong>: your <em>Company / business name</em> shown in the inbox (falls back to a name from your login email if empty).
+          </li>
+          <li>
+            <strong>Reply-To</strong>: your Business profile <em>Email</em> when valid, otherwise your PayRisk login email.
+          </li>
+          <li>
+            <code>&#123;&#123;your_name&#125;&#125;</code> in the templates below uses the same business name.
+          </li>
+        </ul>
       </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
 

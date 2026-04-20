@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, LayoutDashboard, Users, Mail, LogOut, Sliders, CreditCard, Bell, FileText } from 'lucide-react';
+import { Shield, LayoutDashboard, Users, Mail, LogOut, Sliders, CreditCard, Bell, Building2 } from 'lucide-react';
 import { getToken, clearAuth } from './lib/auth';
 import { api, type DueTodayResponse } from './lib/api';
 import type { AuthUser } from './lib/auth';
@@ -157,8 +157,8 @@ function App() {
                       : 'text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  <FileText className="w-4 h-4" />
-                  Invoice
+                  <Building2 className="w-4 h-4" />
+                  Business profile
                 </button>
                 <button
                   onClick={() => navigateTo('custom-rules')}
