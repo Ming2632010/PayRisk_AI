@@ -19,10 +19,17 @@ export function taxActive(t: TaxSettings | null | undefined): boolean {
  * Break a stored transaction amount into (price, tax, lineTotal) according to the user's tax settings.
  * Must match the server-side `computeInvoiceTotals` logic exactly so the transaction history, the
  * send-invoice modal, and the generated invoice email all show the same numbers.
+ *
+ * `applyTax` is the per-line override (e.g. for GST-free items). When it's false the tax is
+ * skipped for this line regardless of the global tax setting.
  */
-export function splitLine(amount: number, t: TaxSettings | null | undefined) {
+export function splitLine(
+  amount: number,
+  t: TaxSettings | null | undefined,
+  applyTax: boolean = true,
+) {
   const raw = Number(amount) || 0;
-  if (!taxActive(t)) return { price: raw, tax: 0, lineTotal: raw };
+  if (!taxActive(t) || !applyTax) return { price: raw, tax: 0, lineTotal: raw };
   const rate = Math.max(0, Number(t!.tax_rate) || 0);
   const factor = rate / 100;
   if (t!.tax_inclusive) {

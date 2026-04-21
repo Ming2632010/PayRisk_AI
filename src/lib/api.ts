@@ -197,6 +197,7 @@ export const api = {
       due_date?: string | null;
       paid_fully?: boolean;
       paid_at?: string | null;
+      apply_tax?: boolean;
     }) => request<unknown>('/api/transactions', { method: 'POST', body }),
     update: (id: number, body: Record<string, unknown>) =>
       request<unknown>(`/api/transactions/${id}`, { method: 'PUT', body }),

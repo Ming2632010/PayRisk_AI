@@ -11,6 +11,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS invoice_email_template JSONB DEFAULT 
 -- 3) Flag on transactions: last time this transaction was included on a sent invoice.
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS invoiced_at TIMESTAMPTZ;
 
+-- 3a) Per-line tax toggle. Defaults to TRUE so existing rows keep their tax behaviour
+--     (tax applied at the user's configured rate). Set to FALSE for tax-exempt line
+--     items (e.g. fresh food or other GST-free goods in Australia).
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS apply_tax BOOLEAN DEFAULT TRUE;
+
 -- 4) Saved invoices. Each row is a full HTML snapshot of an invoice that was emailed,
 --    so the merchant can reopen it at any time from the customer profile — even if the
 --    underlying transactions are later edited or deleted.

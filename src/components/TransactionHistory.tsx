@@ -26,6 +26,7 @@ const defaultFormData = {
   paid_fully: false,
   paid_at: '',
   status: 'completed' as 'pending' | 'completed' | 'failed',
+  apply_tax: true,
 };
 
 /** Normalize API date (e.g. "2025-03-05T00:00:00.000Z" or "2025-03-05") to YYYY-MM-DD for input type="date" */
@@ -92,8 +93,8 @@ export function TransactionHistory({
   const amountInputPreview = useMemo(() => {
     const n = parseFloat(formData.amount);
     if (!Number.isFinite(n) || n <= 0) return null;
-    return splitLine(n, tax);
-  }, [formData.amount, tax]);
+    return splitLine(n, tax, formData.apply_tax);
+  }, [formData.amount, tax, formData.apply_tax]);
 
   async function loadTransactions() {
     try {
@@ -124,6 +125,7 @@ export function TransactionHistory({
       paid_fully: paidFully,
       paid_at: paidAt,
       status: formData.status,
+      apply_tax: formData.apply_tax,
     };
     if (isOffline) {
       if (editingTx) {
@@ -158,7 +160,7 @@ export function TransactionHistory({
   }
 
   function startEdit(tx: Transaction) {
-    const t = tx as Transaction & { finish_date?: string | null; due_date?: string | null; paid_fully?: boolean; paid_at?: string | null };
+    const t = tx as Transaction & { finish_date?: string | null; due_date?: string | null; paid_fully?: boolean; paid_at?: string | null; apply_tax?: boolean };
     setEditingTx(tx);
     setFormData({
       date: toDateOnly(tx.date),
@@ -169,6 +171,7 @@ export function TransactionHistory({
       paid_fully: t.paid_fully ?? false,
       paid_at: toDateOnly(t.paid_at),
       status: tx.status,
+      apply_tax: t.apply_tax === false ? false : true,
     });
     setShowForm(true);
   }
@@ -295,7 +298,11 @@ export function TransactionHistory({
               {showTax && (
                 <p className="text-xs text-gray-500 mt-1">
                   {amountInputPreview ? (
-                    tax.tax_inclusive ? (
+                    !formData.apply_tax ? (
+                      <>
+                        <strong>Total {formatMoney(amountInputPreview.lineTotal)}</strong> — {tax.tax_label} not applied to this line.
+                      </>
+                    ) : tax.tax_inclusive ? (
                       <>
                         Price {formatMoney(amountInputPreview.price)} + {tax.tax_label} {formatMoney(amountInputPreview.tax)} ={' '}
                         <strong>{formatMoney(amountInputPreview.lineTotal)}</strong> (included)
@@ -316,6 +323,22 @@ export function TransactionHistory({
                 </p>
               )}
             </div>
+            {showTax && (
+              <div className="flex items-start gap-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.apply_tax}
+                    onChange={(e) => setFormData({ ...formData, apply_tax: e.target.checked })}
+                    className="w-4 h-4 mt-0.5 text-blue-600 border-gray-300 rounded"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium text-gray-700">Apply {tax.tax_label}</span>
+                    <span className="block text-xs text-gray-500">Untick for {tax.tax_label}-free items (e.g. fresh food, medical).</span>
+                  </span>
+                </label>
+              </div>
+            )}
             <div className="md:col-span-2 lg:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">Items / Tasks</label>
               <input
@@ -397,47 +420,56 @@ export function TransactionHistory({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Order date</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Order date</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Customer</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Items / Tasks</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Finish date</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Finish date</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
                   {showTax ? 'Price' : 'Amount'}
                 </th>
                 {showTax && (
                   <>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">{taxColHeader}</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase whitespace-nowrap">{taxColHeader}</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Total</th>
                   </>
                 )}
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Due date</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Due date</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Paid</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Paid date</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Paid date</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {transactions.map((tx) => {
-                const t = tx as Transaction & { finish_date?: string | null; due_date?: string | null; paid_fully?: boolean; paid_at?: string | null; customer_name?: string };
+                const t = tx as Transaction & { finish_date?: string | null; due_date?: string | null; paid_fully?: boolean; paid_at?: string | null; customer_name?: string; apply_tax?: boolean };
                 const paid = t.paid_fully ?? false;
-                const line = splitLine(Number(tx.amount) || 0, tax);
+                const applyTax = t.apply_tax === false ? false : true;
+                const line = splitLine(Number(tx.amount) || 0, tax, applyTax);
                 return (
                   <tr key={tx.id} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 text-gray-900">{formatDate(tx.date)}</td>
-                    <td className="px-3 py-2 text-gray-700">{t.customer_name ?? customerName}</td>
-                    <td className="px-3 py-2 text-gray-700 max-w-[12rem] truncate" title={tx.description || ''}>{tx.description || '—'}</td>
-                    <td className="px-3 py-2 text-gray-600">{t.finish_date ? formatDate(t.finish_date) : '—'}</td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-900">
+                    <td className="px-3 py-2 text-gray-900 whitespace-nowrap">{formatDate(tx.date)}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{t.customer_name ?? customerName}</td>
+                    <td className="px-3 py-2 text-gray-700 max-w-[16rem] truncate" title={tx.description || ''}>{tx.description || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{t.finish_date ? formatDate(t.finish_date) : '—'}</td>
+                    <td className="px-3 py-2 text-right font-medium text-gray-900 whitespace-nowrap">
                       {showTax ? formatMoney(line.price) : formatCurrency(tx.amount)}
                     </td>
                     {showTax && (
                       <>
-                        <td className="px-3 py-2 text-right text-gray-700">{formatMoney(line.tax)}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatMoney(line.lineTotal)}</td>
+                        <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">
+                          {applyTax ? (
+                            formatMoney(line.tax)
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500" title={`${tax.tax_label} not applied to this line`}>
+                              {tax.tax_label}-free
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold text-gray-900 whitespace-nowrap">{formatMoney(line.lineTotal)}</td>
                       </>
                     )}
-                    <td className="px-3 py-2 text-gray-600">{t.due_date ? formatDate(t.due_date) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{t.due_date ? formatDate(t.due_date) : '—'}</td>
                     <td className="px-3 py-2">
                       <label className="flex items-center gap-1 cursor-pointer">
                         <input
@@ -449,11 +481,11 @@ export function TransactionHistory({
                         {paid && <Check className="w-4 h-4 text-green-600" />}
                       </label>
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{t.paid_at ? formatDate(t.paid_at) : '—'}</td>
+                    <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{t.paid_at ? formatDate(t.paid_at) : '—'}</td>
                     <td className="px-3 py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(tx.status)}`}>{tx.status}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${getStatusColor(tx.status)}`}>{tx.status}</span>
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
                       <div className="flex justify-end gap-1">
                         <button type="button" onClick={() => startEdit(tx)} className="p-1.5 text-gray-500 hover:bg-gray-200 rounded" title="Edit"><Pencil className="w-4 h-4" /></button>
                         <button type="button" onClick={() => handleDelete(tx)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded" title="Delete"><Trash2 className="w-4 h-4" /></button>

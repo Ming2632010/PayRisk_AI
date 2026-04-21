@@ -121,7 +121,8 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
   const selectedTotals = useMemo(() => {
     let price = 0, tx = 0, line = 0;
     for (const r of selectedRows) {
-      const s = splitLine(Number(r.amount) || 0, tax);
+      const applyTax = (r as Transaction & { apply_tax?: boolean }).apply_tax === false ? false : true;
+      const s = splitLine(Number(r.amount) || 0, tax, applyTax);
       price += s.price; tx += s.tax; line += s.lineTotal;
     }
     return { price, tax: tx, total: line };
@@ -305,7 +306,8 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
                           const paid = !!t.paid_fully;
                           const invoiced = !!t.invoiced_at;
                           const selected = selectedIds.has(t.id);
-                          const line = splitLine(Number(t.amount) || 0, tax);
+                          const applyTax = (t as Transaction & { apply_tax?: boolean }).apply_tax === false ? false : true;
+                          const line = splitLine(Number(t.amount) || 0, tax, applyTax);
                           return (
                             <tr
                               key={t.id}
@@ -328,7 +330,15 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
                               </td>
                               {showTax && (
                                 <>
-                                  <td className="px-3 py-2 text-right text-gray-700">{formatMoney(line.tax)}</td>
+                                  <td className="px-3 py-2 text-right text-gray-700">
+                                    {applyTax ? (
+                                      formatMoney(line.tax)
+                                    ) : (
+                                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500" title={`${tax.tax_label} not applied to this line`}>
+                                        {tax.tax_label}-free
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="px-3 py-2 text-right font-medium text-gray-900">{formatMoney(line.lineTotal)}</td>
                                 </>
                               )}

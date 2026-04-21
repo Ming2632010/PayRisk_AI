@@ -763,8 +763,11 @@ function computeInvoiceTotals(transactions, template) {
 
   const lines = (transactions || []).map((t) => {
     const amount = Number(t.amount) || 0;
+    // Per-line flag. Missing/null is treated as TRUE (the historical behaviour) so older
+    // transactions keep working until the migration runs.
+    const applyTax = t.apply_tax === false ? false : true;
     let price, tax, line;
-    if (!enabled || rate === 0) {
+    if (!enabled || rate === 0 || !applyTax) {
       price = amount; tax = 0; line = amount;
     } else if (inclusive) {
       // The stored amount already includes tax. Back it out so we can show it separately.
@@ -784,6 +787,7 @@ function computeInvoiceTotals(transactions, template) {
       price,
       tax,
       line,
+      apply_tax: applyTax,
     };
   });
 
@@ -901,17 +905,17 @@ function parseTransactionIds(raw) {
  * When `ids` is empty, falls back to all unpaid transactions (legacy behavior).
  */
 async function fetchInvoiceTransactions(customerId, userId, ids) {
+  // SELECT * so newly-migrated columns like `apply_tax` flow through without further code changes.
+  // If the column doesn't exist yet, it's simply absent from the row and treated as "apply tax" downstream.
   if (Array.isArray(ids) && ids.length > 0) {
     return await sql`
-      SELECT id, date, amount, description, paid_fully
-      FROM transactions
+      SELECT * FROM transactions
       WHERE customer_id = ${customerId} AND user_id = ${userId} AND id = ANY(${ids})
       ORDER BY date DESC
     `;
   }
   return await sql`
-    SELECT id, date, amount, description, paid_fully
-    FROM transactions
+    SELECT * FROM transactions
     WHERE customer_id = ${customerId} AND user_id = ${userId} AND COALESCE(paid_fully, false) = false
     ORDER BY date DESC
   `;
@@ -1184,20 +1188,45 @@ async function recalcCustomerTotals(customerId) {
   } catch (_) { /* fall back to no-tax if template load fails */ }
   const factor = taxMultiplier(template);
 
-  const agg = await sql`
-    SELECT
-      COUNT(*)::int AS total_orders,
-      COALESCE(SUM(amount), 0) AS total_amount,
-      MAX(date) AS last_purchase_date,
-      COALESCE(SUM(CASE WHEN COALESCE(paid_fully, false) = false THEN amount ELSE 0 END), 0) AS amount_owed,
-      MIN(CASE WHEN COALESCE(paid_fully, false) = false AND due_date IS NOT NULL THEN due_date END) AS due_date
-    FROM transactions
-    WHERE customer_id = ${customerId}
-  `;
-  const a = agg[0];
+  // Split sums by taxable vs exempt so each line gets the correct contribution to the
+  // customer-facing totals (amount_owed, average_order_value). Falls back to treating
+  // every row as taxable if the `apply_tax` column hasn't been migrated yet.
+  let a;
+  try {
+    const agg = await sql`
+      SELECT
+        COUNT(*)::int AS total_orders,
+        COALESCE(SUM(CASE WHEN COALESCE(apply_tax, true) THEN amount ELSE 0 END), 0) AS total_taxable,
+        COALESCE(SUM(CASE WHEN COALESCE(apply_tax, true) = false THEN amount ELSE 0 END), 0) AS total_exempt,
+        COALESCE(SUM(CASE WHEN COALESCE(paid_fully, false) = false AND COALESCE(apply_tax, true) THEN amount ELSE 0 END), 0) AS owed_taxable,
+        COALESCE(SUM(CASE WHEN COALESCE(paid_fully, false) = false AND COALESCE(apply_tax, true) = false THEN amount ELSE 0 END), 0) AS owed_exempt,
+        MAX(date) AS last_purchase_date,
+        MIN(CASE WHEN COALESCE(paid_fully, false) = false AND due_date IS NOT NULL THEN due_date END) AS due_date
+      FROM transactions WHERE customer_id = ${customerId}
+    `;
+    a = agg[0];
+  } catch (err) {
+    // Pre-migration fallback: treat every row as taxable.
+    if (!err.message || !/apply_tax|column/.test(err.message)) throw err;
+    const agg = await sql`
+      SELECT
+        COUNT(*)::int AS total_orders,
+        COALESCE(SUM(amount), 0) AS total_taxable,
+        0 AS total_exempt,
+        COALESCE(SUM(CASE WHEN COALESCE(paid_fully, false) = false THEN amount ELSE 0 END), 0) AS owed_taxable,
+        0 AS owed_exempt,
+        MAX(date) AS last_purchase_date,
+        MIN(CASE WHEN COALESCE(paid_fully, false) = false AND due_date IS NOT NULL THEN due_date END) AS due_date
+      FROM transactions WHERE customer_id = ${customerId}
+    `;
+    a = agg[0];
+  }
+
+  // `factor` is 1 for inclusive/disabled modes and (1 + rate/100) for exclusive, so we just
+  // scale the taxable slice and leave the exempt slice untouched.
   const totalOrders = a?.total_orders ?? 0;
-  const totalAmount = round2(Number(a?.total_amount ?? 0) * factor);
-  const amountOwed = round2(Number(a?.amount_owed ?? 0) * factor);
+  const totalAmount = round2(Number(a?.total_taxable ?? 0) * factor + Number(a?.total_exempt ?? 0));
+  const amountOwed = round2(Number(a?.owed_taxable ?? 0) * factor + Number(a?.owed_exempt ?? 0));
   const averageOrderValue = totalOrders > 0 ? round2(totalAmount / totalOrders) : 0;
   await sql`
     UPDATE customers SET
@@ -1245,12 +1274,15 @@ app.post('/api/transactions', async (req, res) => {
     const orderDate = b.date ?? b.order_date;
     const paidFully = Boolean(b.paid_fully);
     const paidAt = paidFully && (b.paid_at || orderDate) ? (b.paid_at || orderDate) : null;
+    // Default to TRUE so omitting the field preserves the "tax applies" behaviour for clients
+    // that haven't been updated yet.
+    const applyTax = b.apply_tax === false ? false : true;
     const row = await sql`
-      INSERT INTO transactions (customer_id, user_id, date, amount, description, status, finish_date, due_date, paid_fully, paid_at)
+      INSERT INTO transactions (customer_id, user_id, date, amount, description, status, finish_date, due_date, paid_fully, paid_at, apply_tax)
       VALUES (
         ${Number(b.customer_id)}, ${req.userId}, ${orderDate}, ${Number(b.amount)},
         ${b.description ?? b.items_tasks ?? null}, ${b.status ?? 'completed'},
-        ${b.finish_date || null}, ${b.due_date || null}, ${paidFully}, ${paidAt}
+        ${b.finish_date || null}, ${b.due_date || null}, ${paidFully}, ${paidAt}, ${applyTax}
       )
       RETURNING *
     `;
@@ -1272,6 +1304,7 @@ app.put('/api/transactions/:id', async (req, res) => {
     const orderDate = b.date ?? b.order_date ?? c.date;
     const paidFully = b.paid_fully !== undefined ? Boolean(b.paid_fully) : c.paid_fully;
     const paidAt = paidFully ? (b.paid_at || c.paid_at || orderDate) : null;
+    const applyTax = b.apply_tax !== undefined ? (b.apply_tax === false ? false : true) : (c.apply_tax === false ? false : true);
     const rows = await sql`
       UPDATE transactions SET
         date = ${orderDate},
@@ -1282,6 +1315,7 @@ app.put('/api/transactions/:id', async (req, res) => {
         due_date = ${b.due_date !== undefined ? (b.due_date || null) : c.due_date},
         paid_fully = ${paidFully},
         paid_at = ${paidAt},
+        apply_tax = ${applyTax},
         updated_at = now()
       WHERE id = ${id} AND user_id = ${req.userId}
       RETURNING *
