@@ -14,7 +14,30 @@ const defaultTemplate: InvoiceTemplate = {
   tax_label: 'GST',
   tax_rate: 10,
   tax_inclusive: false,
+  sms_country_code: '+61',
 };
+
+/** Common SMS country codes shown in the datalist. Users can still type anything else. */
+const SMS_COUNTRY_CODES: { code: string; label: string }[] = [
+  { code: '+61', label: 'Australia' },
+  { code: '+64', label: 'New Zealand' },
+  { code: '+1',  label: 'US / Canada' },
+  { code: '+44', label: 'United Kingdom' },
+  { code: '+353', label: 'Ireland' },
+  { code: '+65', label: 'Singapore' },
+  { code: '+852', label: 'Hong Kong' },
+  { code: '+81', label: 'Japan' },
+  { code: '+82', label: 'South Korea' },
+  { code: '+91', label: 'India' },
+  { code: '+86', label: 'China' },
+  { code: '+49', label: 'Germany' },
+  { code: '+33', label: 'France' },
+  { code: '+34', label: 'Spain' },
+  { code: '+39', label: 'Italy' },
+  { code: '+31', label: 'Netherlands' },
+  { code: '+27', label: 'South Africa' },
+  { code: '+971', label: 'UAE' },
+];
 
 export default function InvoiceTemplateSettings() {
   const [template, setTemplate] = useState<InvoiceTemplate>(defaultTemplate);
@@ -214,6 +237,35 @@ export default function InvoiceTemplateSettings() {
               </span>
             </span>
           </label>
+        </div>
+
+        <div className="pt-4 mt-2 border-t border-gray-200">
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">SMS settings</h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Default country code applied to customer phone numbers that are stored in local format
+            (e.g. <code>0412 345 678</code> becomes <code>+61 412 345 678</code>). Numbers already in
+            international format (starting with <code>+</code>) are used as-is.
+          </p>
+
+          <div className="max-w-xs">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Default SMS country code</label>
+            <input
+              type="text"
+              list="sms-country-code-list"
+              value={template.sms_country_code}
+              onChange={(e) => setTemplate({ ...template, sms_country_code: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono"
+              placeholder="+61"
+            />
+            <datalist id="sms-country-code-list">
+              {SMS_COUNTRY_CODES.map((c) => (
+                <option key={c.code} value={c.code}>{c.label}</option>
+              ))}
+            </datalist>
+            <p className="text-xs text-gray-500 mt-1">
+              Pick from the list or type any country code (e.g. <code>+61</code>, <code>+1</code>, <code>+44</code>).
+            </p>
+          </div>
         </div>
 
         {message && <p className="text-sm text-green-600">{message}</p>}

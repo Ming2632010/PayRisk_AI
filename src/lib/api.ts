@@ -62,6 +62,7 @@ export type InvoiceTemplate = {
   tax_label: string;
   tax_rate: number;
   tax_inclusive: boolean;
+  sms_country_code: string;
 };
 
 export type EmailTemplates = {

@@ -576,8 +576,11 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="+1 555-123-4567"
+                placeholder="+61 412 345 678 or 0412 345 678"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                International format (with <code>+</code>) is best. Local numbers are accepted and will be expanded using the country code from Business profile.
+              </p>
             </div>
 
             <div className="md:col-span-2 lg:col-span-3 mt-2">

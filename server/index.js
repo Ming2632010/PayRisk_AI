@@ -586,11 +586,13 @@ app.post('/api/customers/:id/send-sms', async (req, res) => {
     const rows = await sql`SELECT id, name, phone, amount_owed, due_date FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
-    const phone = (req.body?.phone || c.phone || '').trim().replace(/\D/g, '');
-    if (!phone || phone.length < 10) return res.status(400).json({ error: 'Customer has no valid phone number for SMS.' });
+    // Load the merchant's Business profile to get their default SMS country code (e.g. +61 for AU).
+    const template = await loadInvoiceTemplate(req.userId);
+    const rawPhone = req.body?.phone || c.phone || '';
+    const to = normalizePhoneE164(rawPhone, template.sms_country_code);
+    if (!to) return res.status(400).json({ error: 'Customer has no valid phone number for SMS. Use an international format (e.g. +61 412 345 678) or set the default country code in Business profile.' });
     const body = req.body?.message || `Hi ${c.name}, friendly reminder: you have an outstanding balance. Please contact us to arrange payment.`;
     if (!twilioClient || !twilioPhone) return res.status(503).json({ error: 'SMS is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in server environment.' });
-    const to = phone.length === 10 ? `+1${phone}` : `+${phone}`;
     await twilioClient.messages.create({ body, from: twilioPhone, to });
     await incrementSms(req.userId);
     res.json({ sent: true, channel: 'sms' });
@@ -656,8 +658,20 @@ function applyEmailTemplate(body, vars) {
 // --- Invoice template (your company details + tax settings for the invoice) ---
 /** Default tax settings: GST @ 10%, enabled, exclusive. New users in AU get the right defaults out of the box. */
 const DEFAULT_TAX = { tax_enabled: true, tax_label: 'GST', tax_rate: 10, tax_inclusive: false };
+/** Default SMS country code (AU) — used to expand local numbers like "0412 345 678" into E.164. */
+const DEFAULT_SMS_COUNTRY_CODE = '+61';
 
-/** Normalize a raw invoice_template value into the full template shape (company fields + tax). */
+/** Clean + validate a user-supplied country code like "+61", "61", or "+44 " → "+61". Empty → default. */
+function normalizeCountryCode(raw) {
+  const s = (raw == null ? '' : String(raw)).trim();
+  if (!s) return DEFAULT_SMS_COUNTRY_CODE;
+  const digits = s.replace(/\D/g, '');
+  if (!digits) return DEFAULT_SMS_COUNTRY_CODE;
+  // Country calling codes are 1-3 digits. Anything longer is almost certainly user error; truncate.
+  return `+${digits.slice(0, 3)}`;
+}
+
+/** Normalize a raw invoice_template value into the full template shape (company fields + tax + SMS). */
 function normalizeInvoiceTemplate(raw) {
   const t = typeof raw === 'object' && raw !== null ? raw : {};
   const rateNum = Number(t.tax_rate);
@@ -673,7 +687,40 @@ function normalizeInvoiceTemplate(raw) {
     tax_label: (t.tax_label ?? '').toString().trim() || DEFAULT_TAX.tax_label,
     tax_rate: Number.isFinite(rateNum) ? Math.max(0, Math.min(100, rateNum)) : DEFAULT_TAX.tax_rate,
     tax_inclusive: typeof t.tax_inclusive === 'boolean' ? t.tax_inclusive : DEFAULT_TAX.tax_inclusive,
+    sms_country_code: normalizeCountryCode(t.sms_country_code),
   };
+}
+
+/**
+ * Convert a raw phone number into E.164 ("+<country><subscriber>") using the merchant's default.
+ * Rules:
+ *   - If it already starts with "+", keep the "+" and strip non-digits → trust the user.
+ *   - If it starts with "00" (international prefix), swap for "+".
+ *   - Otherwise treat it as a local number: strip leading zeros (trunk prefix) and prepend the default CC.
+ * Returns "" when the result is obviously not a phone (< 8 digits after the "+").
+ */
+function normalizePhoneE164(raw, defaultCC) {
+  if (!raw) return '';
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '';
+  const cc = normalizeCountryCode(defaultCC);
+  let e164;
+  if (trimmed.startsWith('+')) {
+    const digits = trimmed.slice(1).replace(/\D/g, '');
+    e164 = digits ? `+${digits}` : '';
+  } else {
+    const digits = trimmed.replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('00')) {
+      e164 = `+${digits.slice(2)}`;
+    } else {
+      e164 = `${cc}${digits.replace(/^0+/, '')}`;
+    }
+  }
+  // E.164 is 8-15 digits after the "+". Reject anything clearly broken.
+  const after = e164.slice(1);
+  if (after.length < 8 || after.length > 15) return '';
+  return e164;
 }
 
 app.get('/api/invoice-template', async (req, res) => {
