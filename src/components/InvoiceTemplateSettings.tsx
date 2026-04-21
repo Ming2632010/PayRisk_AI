@@ -10,6 +10,10 @@ const defaultTemplate: InvoiceTemplate = {
   address: '',
   tax_id: '',
   footer_notes: '',
+  tax_enabled: true,
+  tax_label: 'GST',
+  tax_rate: 10,
+  tax_inclusive: false,
 };
 
 export default function InvoiceTemplateSettings() {
@@ -148,6 +152,70 @@ export default function InvoiceTemplateSettings() {
             placeholder="Payment terms, bank details, or thank you message"
           />
         </div>
+
+        <div className="pt-4 mt-2 border-t border-gray-200">
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">Tax (GST / VAT)</h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Applied to every line on invoices you send. Defaults to 10% GST (Australia). Change the label / rate for your country.
+          </p>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 mb-4">
+            <input
+              type="checkbox"
+              checked={template.tax_enabled}
+              onChange={(e) => setTemplate({ ...template, tax_enabled: e.target.checked })}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded"
+            />
+            Apply tax to invoices
+          </label>
+
+          <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${!template.tax_enabled ? 'opacity-50' : ''}`}>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tax label</label>
+              <input
+                type="text"
+                value={template.tax_label}
+                onChange={(e) => setTemplate({ ...template, tax_label: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                placeholder="GST"
+                disabled={!template.tax_enabled}
+              />
+              <p className="text-xs text-gray-500 mt-1">e.g. GST, VAT, Sales tax</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tax rate (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={template.tax_rate}
+                onChange={(e) => setTemplate({ ...template, tax_rate: Number(e.target.value) || 0 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                disabled={!template.tax_enabled}
+              />
+              <p className="text-xs text-gray-500 mt-1">Percentage applied to each transaction</p>
+            </div>
+          </div>
+
+          <label className={`flex items-start gap-2 text-sm text-gray-700 mt-4 ${!template.tax_enabled ? 'opacity-50' : ''}`}>
+            <input
+              type="checkbox"
+              checked={template.tax_inclusive}
+              onChange={(e) => setTemplate({ ...template, tax_inclusive: e.target.checked })}
+              className="w-4 h-4 mt-0.5 text-blue-600 border-gray-300 rounded"
+              disabled={!template.tax_enabled}
+            />
+            <span>
+              <span className="font-medium">Amounts include tax</span>
+              <span className="block text-xs text-gray-500">
+                Leave off (default) if the amount you enter on a transaction is <em>before</em> tax — tax is added on top.
+                Tick if the amount already includes tax — it will be shown separately on the invoice.
+              </span>
+            </span>
+          </label>
+        </div>
+
         {message && <p className="text-sm text-green-600">{message}</p>}
         <button
           type="button"

@@ -653,13 +653,34 @@ function applyEmailTemplate(body, vars) {
   return out.replace(/\n/g, '<br>');
 }
 
-// --- Invoice template (your company details for the invoice) ---
+// --- Invoice template (your company details + tax settings for the invoice) ---
+/** Default tax settings: GST @ 10%, enabled, exclusive. New users in AU get the right defaults out of the box. */
+const DEFAULT_TAX = { tax_enabled: true, tax_label: 'GST', tax_rate: 10, tax_inclusive: false };
+
+/** Normalize a raw invoice_template value into the full template shape (company fields + tax). */
+function normalizeInvoiceTemplate(raw) {
+  const t = typeof raw === 'object' && raw !== null ? raw : {};
+  const rateNum = Number(t.tax_rate);
+  return {
+    company_name: t.company_name ?? '',
+    contact_name: t.contact_name ?? '',
+    email: t.email ?? '',
+    phone: t.phone ?? '',
+    address: t.address ?? '',
+    tax_id: t.tax_id ?? '',
+    footer_notes: t.footer_notes ?? '',
+    tax_enabled: typeof t.tax_enabled === 'boolean' ? t.tax_enabled : DEFAULT_TAX.tax_enabled,
+    tax_label: (t.tax_label ?? '').toString().trim() || DEFAULT_TAX.tax_label,
+    tax_rate: Number.isFinite(rateNum) ? Math.max(0, Math.min(100, rateNum)) : DEFAULT_TAX.tax_rate,
+    tax_inclusive: typeof t.tax_inclusive === 'boolean' ? t.tax_inclusive : DEFAULT_TAX.tax_inclusive,
+  };
+}
+
 app.get('/api/invoice-template', async (req, res) => {
   try {
     const rows = await sql`SELECT invoice_template FROM users WHERE id = ${req.userId}`;
     if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    const t = rows[0].invoice_template;
-    res.json(typeof t === 'object' && t !== null ? t : {});
+    res.json(normalizeInvoiceTemplate(rows[0].invoice_template));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -668,16 +689,7 @@ app.get('/api/invoice-template', async (req, res) => {
 
 app.put('/api/invoice-template', async (req, res) => {
   try {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const template = {
-      company_name: body.company_name ?? '',
-      contact_name: body.contact_name ?? '',
-      email: body.email ?? '',
-      phone: body.phone ?? '',
-      address: body.address ?? '',
-      tax_id: body.tax_id ?? '',
-      footer_notes: body.footer_notes ?? '',
-    };
+    const template = normalizeInvoiceTemplate(req.body && typeof req.body === 'object' ? req.body : {});
     await sql`
       UPDATE users SET invoice_template = ${JSON.stringify(template)}, updated_at = now()
       WHERE id = ${req.userId}
@@ -689,42 +701,147 @@ app.put('/api/invoice-template', async (req, res) => {
   }
 });
 
+// --- Invoice email template (subject + intro body shown above the invoice HTML) ---
+const DEFAULT_INVOICE_EMAIL = {
+  subject: 'Invoice {{invoice_number}} from {{your_name}} – {{total}}',
+  body: 'Hi {{customer_name}},\n\nPlease find your invoice {{invoice_number}} below. The total amount due is {{total}}{{due_date}}.\n\nThanks,\n{{your_name}}',
+};
+
+app.get('/api/invoice-email-template', async (req, res) => {
+  try {
+    const rows = await sql`SELECT invoice_email_template FROM users WHERE id = ${req.userId}`;
+    if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    const t = rows[0].invoice_email_template;
+    if (typeof t === 'object' && t !== null && t.subject != null) {
+      res.json({ subject: String(t.subject), body: String(t.body ?? '') });
+    } else {
+      res.json(DEFAULT_INVOICE_EMAIL);
+    }
+  } catch (e) {
+    if (e.message && /invoice_email_template|column/.test(e.message)) {
+      return res.json(DEFAULT_INVOICE_EMAIL);
+    }
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/invoice-email-template', async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const template = {
+      subject: (body.subject != null ? String(body.subject) : DEFAULT_INVOICE_EMAIL.subject).slice(0, 500),
+      body: (body.body != null ? String(body.body) : DEFAULT_INVOICE_EMAIL.body).slice(0, 10000),
+    };
+    await sql`
+      UPDATE users SET invoice_email_template = ${JSON.stringify(template)}, updated_at = now()
+      WHERE id = ${req.userId}
+    `;
+    res.json(template);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- Send invoice (email with invoice built from customer + transactions + template) ---
-function buildInvoiceHtml(customer, transactions, template, overrideTotal) {
-  const company = template.company_name || 'Your Company';
-  const contact = template.contact_name || '';
-  const companyEmail = template.email || '';
-  const companyPhone = template.phone || '';
-  const companyAddress = (template.address || '').replace(/\n/g, '<br>');
-  const taxId = template.tax_id || '';
-  const footerNotes = (template.footer_notes || '').replace(/\n/g, '<br>');
+function money(n) { return `$${(Number(n) || 0).toFixed(2)}`; }
+
+/**
+ * Compute per-line price/tax/line-total and overall subtotal/tax/total from a set of transactions,
+ * respecting tax-inclusive vs exclusive. When tax is disabled, tax_amount is 0 and prices pass through.
+ */
+function computeInvoiceTotals(transactions, template) {
+  const enabled = !!template.tax_enabled;
+  const rate = enabled ? Math.max(0, Number(template.tax_rate) || 0) : 0;
+  const inclusive = !!template.tax_inclusive;
+  const rateFactor = rate / 100;
+
+  const lines = (transactions || []).map((t) => {
+    const amount = Number(t.amount) || 0;
+    let price, tax, line;
+    if (!enabled || rate === 0) {
+      price = amount; tax = 0; line = amount;
+    } else if (inclusive) {
+      // The stored amount already includes tax. Back it out so we can show it separately.
+      line = amount;
+      price = amount / (1 + rateFactor);
+      tax = line - price;
+    } else {
+      // The stored amount is the pre-tax price. Add tax on top.
+      price = amount;
+      tax = amount * rateFactor;
+      line = price + tax;
+    }
+    return {
+      id: t.id,
+      date: t.date ? String(t.date).slice(0, 10) : '',
+      description: t.description || 'Order',
+      price,
+      tax,
+      line,
+    };
+  });
+
+  const subtotal = lines.reduce((s, l) => s + l.price, 0);
+  const tax_amount = lines.reduce((s, l) => s + l.tax, 0);
+  const total = subtotal + tax_amount;
+  return { lines, subtotal, tax_amount, total, rate, enabled, inclusive };
+}
+
+function buildInvoiceHtml(customer, transactions, template, opts = {}) {
+  const tpl = normalizeInvoiceTemplate(template);
+  const company = tpl.company_name || 'Your Company';
+  const contact = tpl.contact_name;
+  const companyEmail = tpl.email;
+  const companyPhone = tpl.phone;
+  const companyAddress = (tpl.address || '').replace(/\n/g, '<br>');
+  const taxId = tpl.tax_id;
+  const footerNotes = (tpl.footer_notes || '').replace(/\n/g, '<br>');
   const toName = customer.name;
   const toCompany = customer.company || '';
   const toAddress = [customer.street_address, [customer.city, customer.state_province, customer.postal_code].filter(Boolean).join(' '), customer.country].filter(Boolean).join('<br>');
   const invoiceDate = new Date().toISOString().slice(0, 10);
   const dueDate = customer.due_date ? String(customer.due_date).slice(0, 10) : invoiceDate;
-  const rows = (transactions || []).map((t) => ({
-    date: String(t.date).slice(0, 10),
-    description: t.description || 'Order',
-    amount: Number(t.amount) || 0,
-  }));
-  const total = typeof overrideTotal === 'number' && Number.isFinite(overrideTotal)
-    ? overrideTotal
-    : rows.reduce((s, r) => s + r.amount, 0);
-  const rowsHtml = rows.length > 0
-    ? rows.map((r) => `<tr><td>${r.date}</td><td>${r.description}</td><td style="text-align:right">$${r.amount.toFixed(2)}</td></tr>`).join('')
-    : `<tr><td colspan="3">No line items</td></tr>`;
+  const invoiceNumber = opts.invoiceNumber || '';
+  const introHtml = opts.introHtml || '';
+
+  const { lines, subtotal, tax_amount, total, rate, enabled, inclusive } = computeInvoiceTotals(transactions, tpl);
+  const showTax = enabled && rate > 0;
+  const taxHeader = showTax ? `<th style="text-align:right">${escapeHtml(tpl.tax_label)} (${rate}%)</th>` : '';
+  const rowsHtml = lines.length > 0
+    ? lines.map((l) => `<tr>
+        <td>${escapeHtml(l.date)}</td>
+        <td>${escapeHtml(l.description)}</td>
+        <td style="text-align:right">${money(l.price)}</td>
+        ${showTax ? `<td style="text-align:right">${money(l.tax)}</td>` : ''}
+        <td style="text-align:right">${money(l.line)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="${showTax ? 5 : 4}">No line items</td></tr>`;
+
+  const inclusiveNote = showTax && inclusive ? `<div style="font-size:0.85em;color:#666;margin-top:-8px">Amounts are tax-inclusive. Tax shown is included in the line price.</div>` : '';
+
+  const totalsBlock = showTax
+    ? `<table style="width: 320px; margin-left:auto; border:none">
+         <tr><td style="border:none;padding:4px 8px">Subtotal</td><td style="border:none;padding:4px 8px;text-align:right">${money(subtotal)}</td></tr>
+         <tr><td style="border:none;padding:4px 8px">${escapeHtml(tpl.tax_label)} (${rate}%)</td><td style="border:none;padding:4px 8px;text-align:right">${money(tax_amount)}</td></tr>
+         <tr><td style="border:none;padding:8px;font-weight:bold;border-top:2px solid #333">Total due</td><td style="border:none;padding:8px;text-align:right;font-weight:bold;border-top:2px solid #333">${money(total)}</td></tr>
+       </table>`
+    : `<div class="total">Total due: ${money(total)}</div>`;
+
   return `
 <!DOCTYPE html><html><head><meta charset="utf-8"><style>
   body { font-family: system-ui, sans-serif; color: #333; max-width: 700px; margin: 0 auto; padding: 24px; }
+  .intro { margin-bottom: 28px; padding-bottom: 16px; border-bottom: 1px solid #eee; white-space: pre-wrap; }
   .header { display: flex; justify-content: space-between; margin-bottom: 32px; }
   .to { margin-bottom: 24px; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
   th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
   th { background: #f5f5f5; }
-  .total { font-size: 1.2em; font-weight: bold; }
+  .total { font-size: 1.2em; font-weight: bold; text-align: right; }
   .footer { margin-top: 32px; font-size: 0.9em; color: #666; }
 </style></head><body>
+  ${introHtml ? `<div class="intro">${introHtml}</div>` : ''}
   <div class="header">
     <div>
       <strong style="font-size: 1.3em;">${escapeHtml(company)}</strong>
@@ -734,7 +851,12 @@ function buildInvoiceHtml(customer, transactions, template, overrideTotal) {
       ${companyAddress ? `<br>${companyAddress}` : ''}
       ${taxId ? `<br>Tax ID: ${escapeHtml(taxId)}` : ''}
     </div>
-    <div><strong>INVOICE</strong><br>Date: ${invoiceDate}<br>Due: ${dueDate}</div>
+    <div style="text-align:right">
+      <strong>INVOICE</strong>
+      ${invoiceNumber ? `<br>#${escapeHtml(invoiceNumber)}` : ''}
+      <br>Date: ${invoiceDate}
+      <br>Due: ${dueDate}
+    </div>
   </div>
   <div class="to">
     <strong>Bill to</strong><br>
@@ -743,10 +865,17 @@ function buildInvoiceHtml(customer, transactions, template, overrideTotal) {
     ${toAddress ? `<br>${toAddress}` : ''}
   </div>
   <table>
-    <thead><tr><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
+    <thead><tr>
+      <th>Date</th>
+      <th>Description</th>
+      <th style="text-align:right">Price</th>
+      ${taxHeader}
+      <th style="text-align:right">Line total</th>
+    </tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
-  <div class="total">Total due: $${total.toFixed(2)}</div>
+  ${inclusiveNote}
+  ${totalsBlock}
   ${footerNotes ? `<div class="footer">${footerNotes}</div>` : ''}
 </body></html>`;
 }
@@ -794,12 +923,73 @@ async function loadCustomerForInvoice(id, userId) {
 
 async function loadInvoiceTemplate(userId) {
   const userRows = await sql`SELECT invoice_template FROM users WHERE id = ${userId}`;
-  return (userRows[0]?.invoice_template && typeof userRows[0].invoice_template === 'object')
-    ? userRows[0].invoice_template
-    : {};
+  return normalizeInvoiceTemplate(userRows[0]?.invoice_template);
 }
 
-// Read-only: returns invoice HTML + total + subject for the chosen transactions so the UI can preview before sending.
+async function loadInvoiceEmailTemplate(userId) {
+  try {
+    const rows = await sql`SELECT invoice_email_template FROM users WHERE id = ${userId}`;
+    const t = rows[0]?.invoice_email_template;
+    if (typeof t === 'object' && t !== null && t.subject != null) {
+      return { subject: String(t.subject), body: String(t.body ?? '') };
+    }
+  } catch (_) { /* column may not exist yet */ }
+  return DEFAULT_INVOICE_EMAIL;
+}
+
+function formatInvoiceNumber(n) {
+  return `INV-${String(Math.max(1, Number(n) || 1)).padStart(4, '0')}`;
+}
+
+/** Peek the next invoice number for this user without consuming it (used for preview). */
+async function peekNextInvoiceNumber(userId) {
+  try {
+    const rows = await sql`SELECT COALESCE(invoice_counter, 0) AS n FROM users WHERE id = ${userId}`;
+    return formatInvoiceNumber(Number(rows[0]?.n ?? 0) + 1);
+  } catch (_) {
+    return formatInvoiceNumber(1);
+  }
+}
+
+/** Atomically increment this user's invoice counter and return the new INV-XXXX string. */
+async function allocateInvoiceNumber(userId) {
+  const rows = await sql`
+    UPDATE users SET invoice_counter = COALESCE(invoice_counter, 0) + 1, updated_at = now()
+    WHERE id = ${userId}
+    RETURNING invoice_counter
+  `;
+  return formatInvoiceNumber(rows[0]?.invoice_counter ?? 1);
+}
+
+/** Render the invoice email subject/body template with the computed invoice figures. */
+function renderInvoiceEmailVars(emailTemplate, ctx) {
+  const dueStr = ctx.due_date ? ` by ${ctx.due_date}` : '';
+  const vars = {
+    customer_name: ctx.customer_name,
+    invoice_number: ctx.invoice_number,
+    subtotal: money(ctx.subtotal),
+    tax_amount: money(ctx.tax_amount),
+    tax_label: ctx.tax_label,
+    total: money(ctx.total),
+    due_date: dueStr,
+    your_name: ctx.your_name,
+  };
+  return {
+    subject: applyInvoiceTemplateVars(emailTemplate.subject, vars),
+    introHtml: applyEmailTemplate(emailTemplate.body, vars),
+  };
+}
+
+/** Subject-safe variable substitution: does NOT convert newlines to <br> (used for the subject line). */
+function applyInvoiceTemplateVars(str, vars) {
+  let out = String(str ?? '');
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v));
+  }
+  return out;
+}
+
+// Read-only: returns invoice HTML + totals + subject for the chosen transactions so the UI can preview before sending.
 app.post('/api/customers/:id/invoice-preview', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -808,10 +998,21 @@ app.post('/api/customers/:id/invoice-preview', async (req, res) => {
     const ids = parseTransactionIds(req.body?.transaction_ids);
     const txRows = await fetchInvoiceTransactions(id, req.userId, ids);
     const template = await loadInvoiceTemplate(req.userId);
-    const total = txRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    const html = buildInvoiceHtml(customer, txRows, template, total);
-    const subject = `Invoice from ${template.company_name || 'Us'} – $${total.toFixed(2)} due`;
-    res.json({ html, subject, total, count: txRows.length });
+    const emailTpl = await loadInvoiceEmailTemplate(req.userId);
+    const invoiceNumber = await peekNextInvoiceNumber(req.userId);
+    const { subtotal, tax_amount, total } = computeInvoiceTotals(txRows, template);
+    const invSnip = parseInvoiceTemplateForSender(template);
+    const senderLabel = invSnip.company_name || friendlyFromLogin(req.userEmail);
+    const { subject, introHtml } = renderInvoiceEmailVars(emailTpl, {
+      customer_name: customer.name,
+      invoice_number: invoiceNumber,
+      subtotal, tax_amount, total,
+      tax_label: template.tax_label,
+      due_date: customer.due_date ? String(customer.due_date).slice(0, 10) : '',
+      your_name: senderLabel,
+    });
+    const html = buildInvoiceHtml(customer, txRows, template, { invoiceNumber, introHtml });
+    res.json({ html, subject, subtotal, tax_amount, total, count: txRows.length, invoice_number: invoiceNumber });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -829,26 +1030,116 @@ app.post('/api/customers/:id/send-invoice', async (req, res) => {
     const txRows = await fetchInvoiceTransactions(id, req.userId, ids);
     if (txRows.length === 0) return res.status(400).json({ error: 'No transactions selected for this invoice.' });
     const template = await loadInvoiceTemplate(req.userId);
+    const emailTpl = await loadInvoiceEmailTemplate(req.userId);
     if (!resendApi) return res.status(503).json({ error: 'Email is not configured. Set RESEND_API_KEY and FROM_EMAIL in server environment.' });
-    const total = txRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    const html = buildInvoiceHtml(customer, txRows, template, total);
+
+    const { subtotal, tax_amount, total } = computeInvoiceTotals(txRows, template);
+    const invoiceNumber = await allocateInvoiceNumber(req.userId);
     const invSnip = parseInvoiceTemplateForSender(template);
     const senderLabel = invSnip.company_name || friendlyFromLogin(req.userEmail);
+    const { subject, introHtml } = renderInvoiceEmailVars(emailTpl, {
+      customer_name: customer.name,
+      invoice_number: invoiceNumber,
+      subtotal, tax_amount, total,
+      tax_label: template.tax_label,
+      due_date: customer.due_date ? String(customer.due_date).slice(0, 10) : '',
+      your_name: senderLabel,
+    });
+    const html = buildInvoiceHtml(customer, txRows, template, { invoiceNumber, introHtml });
     const replyTo = merchantReplyTo(invSnip, req.userEmail);
+
     const { error } = await resendApi.emails.send({
       from: formatResendFrom(senderLabel, fromEmail),
       to: customer.email,
       replyTo,
-      subject: `Invoice from ${template.company_name || 'Us'} – $${total.toFixed(2)} due`,
+      subject,
       html,
     });
     if (error) return res.status(500).json({ error: error.message || 'Failed to send email' });
+
+    const txIds = txRows.map((t) => Number(t.id)).filter(Boolean);
+    let savedId = null;
+    try {
+      const saved = await sql`
+        INSERT INTO invoices (
+          user_id, customer_id, invoice_number, subject, transaction_ids,
+          subtotal, tax_amount, tax_label, tax_rate, tax_inclusive, total, sent_to, html
+        ) VALUES (
+          ${req.userId}, ${id}, ${invoiceNumber}, ${subject}, ${txIds},
+          ${subtotal.toFixed(2)}, ${tax_amount.toFixed(2)}, ${template.tax_label},
+          ${template.tax_rate}, ${template.tax_inclusive}, ${total.toFixed(2)},
+          ${customer.email}, ${html}
+        )
+        RETURNING id
+      `;
+      savedId = saved[0]?.id ?? null;
+    } catch (snapErr) {
+      // Log but don't fail the response — the email has already gone out.
+      console.error('Failed to persist invoice snapshot:', snapErr);
+    }
+
+    try {
+      if (txIds.length > 0) {
+        await sql`UPDATE transactions SET invoiced_at = now(), updated_at = now() WHERE id = ANY(${txIds}) AND user_id = ${req.userId}`;
+      }
+    } catch (stampErr) {
+      console.error('Failed to stamp invoiced_at on transactions:', stampErr);
+    }
+
     await sql`
       UPDATE customers SET last_invoice_sent_at = now(), updated_at = now()
       WHERE id = ${id} AND user_id = ${req.userId}
     `;
     await incrementEmail(req.userId);
-    res.json({ sent: true, channel: 'email' });
+    res.json({ sent: true, channel: 'email', invoice_id: savedId, invoice_number: invoiceNumber, total });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List all saved invoices for a customer (no HTML, for lightweight lists).
+app.get('/api/customers/:id/invoices', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    try {
+      const rows = await sql`
+        SELECT id, invoice_number, subject, subtotal, tax_amount, tax_label, tax_rate,
+               tax_inclusive, total, sent_to, sent_at, array_length(transaction_ids, 1) AS tx_count
+        FROM invoices
+        WHERE customer_id = ${id} AND user_id = ${req.userId}
+        ORDER BY sent_at DESC, id DESC
+      `;
+      res.json(rows);
+    } catch (err) {
+      if (err.message && /invoices|relation|column/.test(err.message)) return res.json([]);
+      throw err;
+    }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get a single saved invoice including the stored HTML snapshot.
+app.get('/api/invoices/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    try {
+      const rows = await sql`
+        SELECT id, customer_id, invoice_number, subject, transaction_ids, subtotal, tax_amount,
+               tax_label, tax_rate, tax_inclusive, total, sent_to, html, sent_at
+        FROM invoices
+        WHERE id = ${id} AND user_id = ${req.userId}
+      `;
+      if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
+      res.json(rows[0]);
+    } catch (err) {
+      if (err.message && /invoices|relation|column/.test(err.message)) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      throw err;
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

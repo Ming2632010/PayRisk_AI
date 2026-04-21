@@ -153,6 +153,7 @@ export interface Database {
           due_date: string | null;
           paid_fully: boolean;
           paid_at: string | null;
+          invoiced_at: string | null;
           created_at: string;
           updated_at: string;
           customer_name?: string;

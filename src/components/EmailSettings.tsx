@@ -6,24 +6,29 @@ const DEFAULT_REMINDER_SUBJECT = 'Friendly reminder about your overdue invoice';
 const DEFAULT_REMINDER_BODY = 'Hi {{customer_name}},\n\nJust a gentle reminder that your payment of {{amount}} was due on {{due_date}}. Let me know if you need any help!\n\nThanks,\n{{your_name}}';
 const DEFAULT_OFFER_SUBJECT = 'Special offer just for you';
 const DEFAULT_OFFER_BODY = "Hi {{customer_name}},\n\nThank you for being a valued customer. Here's a special offer just for you: {{offer_details}}.\n\nBest regards,\n{{your_name}}";
+const DEFAULT_INVOICE_SUBJECT = 'Invoice {{invoice_number}} from {{your_name}} – {{total}}';
+const DEFAULT_INVOICE_BODY = 'Hi {{customer_name}},\n\nPlease find your invoice {{invoice_number}} below. The total amount due is {{total}}{{due_date}}.\n\nThanks,\n{{your_name}}';
 
 export default function EmailSettings() {
   const [reminderSubject, setReminderSubject] = useState(DEFAULT_REMINDER_SUBJECT);
   const [reminderBody, setReminderBody] = useState(DEFAULT_REMINDER_BODY);
   const [offerSubject, setOfferSubject] = useState(DEFAULT_OFFER_SUBJECT);
   const [offerBody, setOfferBody] = useState(DEFAULT_OFFER_BODY);
+  const [invoiceSubject, setInvoiceSubject] = useState(DEFAULT_INVOICE_SUBJECT);
+  const [invoiceBody, setInvoiceBody] = useState(DEFAULT_INVOICE_BODY);
   const [saveStatus, setSaveStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.emailTemplates
-      .get()
-      .then((data) => {
-        setReminderSubject(data.reminder.subject);
-        setReminderBody(data.reminder.body);
-        setOfferSubject(data.offer.subject);
-        setOfferBody(data.offer.body);
+    Promise.all([api.emailTemplates.get(), api.invoiceEmailTemplate.get()])
+      .then(([templates, inv]) => {
+        setReminderSubject(templates.reminder.subject);
+        setReminderBody(templates.reminder.body);
+        setOfferSubject(templates.offer.subject);
+        setOfferBody(templates.offer.body);
+        setInvoiceSubject(inv.subject);
+        setInvoiceBody(inv.body);
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load templates'))
       .finally(() => setLoading(false));
@@ -32,11 +37,14 @@ export default function EmailSettings() {
   const handleSave = async () => {
     setError(null);
     try {
-      await api.emailTemplates.save({
-        reminder: { subject: reminderSubject, body: reminderBody },
-        offer: { subject: offerSubject, body: offerBody },
-      });
-      setSaveStatus('✅ Templates saved. They will be used when you send reminder or offer emails.');
+      await Promise.all([
+        api.emailTemplates.save({
+          reminder: { subject: reminderSubject, body: reminderBody },
+          offer: { subject: offerSubject, body: offerBody },
+        }),
+        api.invoiceEmailTemplate.save({ subject: invoiceSubject, body: invoiceBody }),
+      ]);
+      setSaveStatus('✅ Templates saved. They will be used when you send reminder, offer, or invoice emails.');
       setTimeout(() => setSaveStatus(''), 4000);
     } catch (e) {
       setSaveStatus('');
@@ -49,6 +57,8 @@ export default function EmailSettings() {
     setReminderBody(DEFAULT_REMINDER_BODY);
     setOfferSubject(DEFAULT_OFFER_SUBJECT);
     setOfferBody(DEFAULT_OFFER_BODY);
+    setInvoiceSubject(DEFAULT_INVOICE_SUBJECT);
+    setInvoiceBody(DEFAULT_INVOICE_BODY);
   };
 
   if (loading) return <div className="max-w-4xl mx-auto p-6 text-gray-500">Loading templates…</div>;
@@ -167,6 +177,54 @@ export default function EmailSettings() {
               <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
                 {'{{your_name}}'}
               </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Invoice Email Template */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-2xl">🧾</span>
+          <h2 className="text-lg font-semibold text-gray-900">Invoice Email</h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          The subject line and intro text used when you click <strong>Send Invoice</strong>. The invoice line items,
+          tax, and totals are generated automatically from the transactions you select — configure tax in <strong>Business profile</strong>.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Subject Line</label>
+            <input
+              type="text"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={invoiceSubject}
+              onChange={(e) => setInvoiceSubject(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Intro Body</label>
+            <textarea
+              rows={5}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={invoiceBody}
+              onChange={(e) => setInvoiceBody(e.target.value)}
+            />
+            <p className="text-xs text-gray-500 mt-1.5">
+              Shown above the invoice table in the email. The invoice itself (line items, Price, Tax, Line total, Subtotal, Tax, Total due) is auto-generated.
+            </p>
+          </div>
+
+          <div className="bg-blue-50 rounded-lg p-4">
+            <p className="text-sm font-medium text-blue-800 mb-2">Available variables:</p>
+            <div className="flex flex-wrap gap-2">
+              {['{{customer_name}}', '{{invoice_number}}', '{{subtotal}}', '{{tax_amount}}', '{{tax_label}}', '{{total}}', '{{due_date}}', '{{your_name}}'].map((v) => (
+                <span key={v} className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                  {v}
+                </span>
+              ))}
             </div>
           </div>
         </div>

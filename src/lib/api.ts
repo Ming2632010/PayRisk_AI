@@ -58,11 +58,56 @@ export type InvoiceTemplate = {
   address: string;
   tax_id: string;
   footer_notes: string;
+  tax_enabled: boolean;
+  tax_label: string;
+  tax_rate: number;
+  tax_inclusive: boolean;
 };
 
 export type EmailTemplates = {
   reminder: { subject: string; body: string };
   offer: { subject: string; body: string };
+};
+
+export type InvoiceEmailTemplate = { subject: string; body: string };
+
+export type InvoiceSummary = {
+  id: number;
+  invoice_number: string;
+  subject: string;
+  subtotal: number;
+  tax_amount: number;
+  tax_label: string | null;
+  tax_rate: number | null;
+  tax_inclusive: boolean | null;
+  total: number;
+  sent_to: string;
+  sent_at: string;
+  tx_count: number | null;
+};
+
+export type InvoiceDetail = InvoiceSummary & {
+  customer_id: number;
+  transaction_ids: number[];
+  html: string;
+};
+
+export type InvoicePreview = {
+  html: string;
+  subject: string;
+  subtotal: number;
+  tax_amount: number;
+  total: number;
+  count: number;
+  invoice_number: string;
+};
+
+export type InvoiceSendResult = {
+  sent: boolean;
+  channel: string;
+  invoice_id: number | null;
+  invoice_number: string;
+  total: number;
 };
 
 export const api = {
@@ -89,6 +134,14 @@ export const api = {
     save: (body: Partial<EmailTemplates>) =>
       request<EmailTemplates>('/api/email-templates', { method: 'PUT', body }),
   },
+  invoiceEmailTemplate: {
+    get: () => request<InvoiceEmailTemplate>('/api/invoice-email-template'),
+    save: (body: Partial<InvoiceEmailTemplate>) =>
+      request<InvoiceEmailTemplate>('/api/invoice-email-template', { method: 'PUT', body }),
+  },
+  invoices: {
+    get: (id: number) => request<InvoiceDetail>(`/api/invoices/${id}`),
+  },
   customers: {
     list: () => request<unknown[]>('/api/customers'),
     create: (body: Record<string, unknown>) =>
@@ -113,18 +166,16 @@ export const api = {
         body: body || {},
       }),
     sendInvoice: (id: number, body?: { transaction_ids?: number[] }) =>
-      request<{ sent: boolean; channel: string }>(`/api/customers/${id}/send-invoice`, {
+      request<InvoiceSendResult>(`/api/customers/${id}/send-invoice`, {
         method: 'POST',
         body: body || {},
       }),
     invoicePreview: (id: number, body?: { transaction_ids?: number[] }) =>
-      request<{ html: string; subject: string; total: number; count: number }>(
-        `/api/customers/${id}/invoice-preview`,
-        {
-          method: 'POST',
-          body: body || {},
-        }
-      ),
+      request<InvoicePreview>(`/api/customers/${id}/invoice-preview`, {
+        method: 'POST',
+        body: body || {},
+      }),
+    listInvoices: (id: number) => request<InvoiceSummary[]>(`/api/customers/${id}/invoices`),
   },
   notes: {
     list: (customerId: number) => request<unknown[]>(`/api/customers/${customerId}/notes`),
