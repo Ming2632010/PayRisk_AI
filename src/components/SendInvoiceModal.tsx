@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Eye, Send, ArrowLeft, Receipt, History } from 'lucide-react';
 import { api, type InvoiceSummary } from '../lib/api';
 import type { Transaction } from '../lib/database.types';
+import { DEFAULT_TAX_SETTINGS, splitLine, taxActive, type TaxSettings } from '../utils/tax';
 
 type CustomerLike = {
   id: number;
@@ -53,6 +54,16 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
   const [pastInvoices, setPastInvoices] = useState<InvoiceSummary[] | null>(null);
   const [pastLoading, setPastLoading] = useState(false);
   const [viewInvoiceHtml, setViewInvoiceHtml] = useState<{ number: string; html: string } | null>(null);
+  const [tax, setTax] = useState<TaxSettings>(DEFAULT_TAX_SETTINGS);
+
+  useEffect(() => {
+    api.invoiceTemplate
+      .get()
+      .then((t) => setTax({ tax_enabled: t.tax_enabled, tax_label: t.tax_label, tax_rate: t.tax_rate, tax_inclusive: t.tax_inclusive }))
+      .catch(() => { /* keep defaults */ });
+  }, []);
+
+  const showTax = taxActive(tax);
 
   useEffect(() => {
     let alive = true;
@@ -107,10 +118,14 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
     () => transactions.filter((t) => selectedIds.has(t.id)),
     [transactions, selectedIds],
   );
-  const selectedAmountSum = useMemo(
-    () => selectedRows.reduce((s, r) => s + (Number(r.amount) || 0), 0),
-    [selectedRows],
-  );
+  const selectedTotals = useMemo(() => {
+    let price = 0, tx = 0, line = 0;
+    for (const r of selectedRows) {
+      const s = splitLine(Number(r.amount) || 0, tax);
+      price += s.price; tx += s.tax; line += s.lineTotal;
+    }
+    return { price, tax: tx, total: line };
+  }, [selectedRows, tax]);
 
   function toggle(id: number) {
     setSelectedIds((prev) => {
@@ -275,7 +290,13 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
                           <th className="px-3 py-2 text-left w-10"> </th>
                           <th className="px-3 py-2 text-left">Date</th>
                           <th className="px-3 py-2 text-left">Description</th>
-                          <th className="px-3 py-2 text-right">Amount</th>
+                          <th className="px-3 py-2 text-right">{showTax ? 'Price' : 'Amount'}</th>
+                          {showTax && (
+                            <>
+                              <th className="px-3 py-2 text-right">{tax.tax_label} ({tax.tax_rate}%)</th>
+                              <th className="px-3 py-2 text-right">Total</th>
+                            </>
+                          )}
                           <th className="px-3 py-2 text-left">Status</th>
                         </tr>
                       </thead>
@@ -284,6 +305,7 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
                           const paid = !!t.paid_fully;
                           const invoiced = !!t.invoiced_at;
                           const selected = selectedIds.has(t.id);
+                          const line = splitLine(Number(t.amount) || 0, tax);
                           return (
                             <tr
                               key={t.id}
@@ -302,8 +324,14 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
                                 {t.description || `Order #${t.id}`}
                               </td>
                               <td className="px-3 py-2 text-right text-gray-900">
-                                {formatMoney(Number(t.amount) || 0)}
+                                {formatMoney(showTax ? line.price : Number(t.amount) || 0)}
                               </td>
+                              {showTax && (
+                                <>
+                                  <td className="px-3 py-2 text-right text-gray-700">{formatMoney(line.tax)}</td>
+                                  <td className="px-3 py-2 text-right font-medium text-gray-900">{formatMoney(line.lineTotal)}</td>
+                                </>
+                              )}
                               <td className="px-3 py-2">
                                 <div className="flex gap-1 flex-wrap">
                                   {paid && (
@@ -331,7 +359,9 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
                   </div>
 
                   <p className="text-xs text-gray-500 mt-3">
-                    Tax, subtotal and total will be calculated from the <strong>Business profile</strong> tax settings when you preview or send.
+                    {showTax
+                      ? `${tax.tax_label} ${tax.tax_rate}% is applied${tax.tax_inclusive ? ' (already included in stored amounts)' : ' on top of each price'}. Change in Business profile.`
+                      : 'Tax is currently disabled in Business profile — amounts shown are as entered.'}
                   </p>
                 </>
               )}
@@ -405,9 +435,18 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
             <div className="text-sm text-gray-700">
               {stage === 'select' ? (
                 <>
-                  Selected: <strong>{selectedIds.size}</strong> · Lines sum:{' '}
-                  <strong>{formatMoney(selectedAmountSum)}</strong>
-                  <span className="text-xs text-gray-500 ml-2">(tax applied at preview)</span>
+                  Selected: <strong>{selectedIds.size}</strong>
+                  {showTax ? (
+                    <>
+                      {' '}· Subtotal: <strong>{formatMoney(selectedTotals.price)}</strong>
+                      {' '}· {tax.tax_label}: <strong>{formatMoney(selectedTotals.tax)}</strong>
+                      {' '}· Total: <strong>{formatMoney(selectedTotals.total)}</strong>
+                    </>
+                  ) : (
+                    <>
+                      {' '}· Total: <strong>{formatMoney(selectedTotals.total)}</strong>
+                    </>
+                  )}
                 </>
               ) : (
                 <>

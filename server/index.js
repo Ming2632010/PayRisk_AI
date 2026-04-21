@@ -694,6 +694,10 @@ app.put('/api/invoice-template', async (req, res) => {
       UPDATE users SET invoice_template = ${JSON.stringify(template)}, updated_at = now()
       WHERE id = ${req.userId}
     `;
+    // Tax settings live inside invoice_template; when they change, customer-facing totals
+    // (amount_owed, average_order_value, total_amount) must be recomputed so reminders,
+    // dashboards, and "due today" stay consistent with what invoices will show.
+    try { await recalcAllCustomersForUser(req.userId); } catch (err) { console.error('recalcAllCustomersForUser failed', err); }
     res.json(template);
   } catch (e) {
     console.error(e);
@@ -1147,7 +1151,39 @@ app.get('/api/invoices/:id', async (req, res) => {
 });
 
 // --- Recalc customer totals from transactions (amount_owed, due_date, total_orders, average_order_value, last_purchase_date) ---
+
+/**
+ * Factor that converts a stored transaction amount to the tax-inclusive line total shown to customers.
+ *   exclusive (default): amount is pre-tax → line total = amount × (1 + rate)
+ *   inclusive:           amount already includes tax → factor = 1
+ *   disabled / 0%:       factor = 1
+ * Keeping amount_owed, reminder "amount", and invoice totals all using this factor prevents the
+ * "$100 in the reminder vs $110 on the invoice" mismatch.
+ */
+function taxMultiplier(template) {
+  if (!template || !template.tax_enabled) return 1;
+  const rate = Math.max(0, Number(template.tax_rate) || 0);
+  if (rate === 0) return 1;
+  if (template.tax_inclusive) return 1;
+  return 1 + rate / 100;
+}
+
+function round2(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return Math.round(v * 100) / 100;
+}
+
 async function recalcCustomerTotals(customerId) {
+  const cust = await sql`SELECT user_id FROM customers WHERE id = ${customerId}`;
+  if (cust.length === 0) return;
+  const userId = cust[0].user_id;
+  let template = {};
+  try {
+    template = await loadInvoiceTemplate(userId);
+  } catch (_) { /* fall back to no-tax if template load fails */ }
+  const factor = taxMultiplier(template);
+
   const agg = await sql`
     SELECT
       COUNT(*)::int AS total_orders,
@@ -1160,11 +1196,12 @@ async function recalcCustomerTotals(customerId) {
   `;
   const a = agg[0];
   const totalOrders = a?.total_orders ?? 0;
-  const totalAmount = Number(a?.total_amount ?? 0);
-  const averageOrderValue = totalOrders > 0 ? totalAmount / totalOrders : 0;
+  const totalAmount = round2(Number(a?.total_amount ?? 0) * factor);
+  const amountOwed = round2(Number(a?.amount_owed ?? 0) * factor);
+  const averageOrderValue = totalOrders > 0 ? round2(totalAmount / totalOrders) : 0;
   await sql`
     UPDATE customers SET
-      amount_owed = ${Number(a?.amount_owed ?? 0)},
+      amount_owed = ${amountOwed},
       due_date = ${a?.due_date ?? null},
       total_orders = ${totalOrders},
       average_order_value = ${averageOrderValue},
@@ -1172,6 +1209,15 @@ async function recalcCustomerTotals(customerId) {
       updated_at = now()
     WHERE id = ${customerId}
   `;
+}
+
+/** Re-run totals for every customer owned by this user. Called after tax settings change so
+ *  dashboards, "due today", and reminder emails reflect the new tax treatment immediately. */
+async function recalcAllCustomersForUser(userId) {
+  const rows = await sql`SELECT id FROM customers WHERE user_id = ${userId}`;
+  for (const r of rows) {
+    try { await recalcCustomerTotals(r.id); } catch (e) { console.error('recalc failed', r.id, e); }
+  }
 }
 
 // --- Transactions ---

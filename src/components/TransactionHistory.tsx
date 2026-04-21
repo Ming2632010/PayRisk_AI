@@ -1,10 +1,11 @@
 // src/components/TransactionHistory.tsx
-import { useState, useEffect } from 'react';
-import { Plus, Calendar, DollarSign, Check, X, Pencil, Trash2 } from 'lucide-react';
-import { api } from '../lib/api';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, Check, X, Pencil, Trash2 } from 'lucide-react';
+import { api, type InvoiceTemplate } from '../lib/api';
 import type { Transaction } from '../lib/database.types';
 import { formatCurrency, formatDate } from '../utils/scoring';
 import { addToPendingQueue } from '../lib/offline';
+import { DEFAULT_TAX_SETTINGS, splitLine, taxActive, formatMoney, type TaxSettings } from '../utils/tax';
 
 interface TransactionHistoryProps {
   customerId: number;
@@ -49,10 +50,50 @@ export function TransactionHistory({
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(defaultFormData);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [tax, setTax] = useState<TaxSettings>(DEFAULT_TAX_SETTINGS);
 
   useEffect(() => {
     loadTransactions();
   }, [customerId]);
+
+  useEffect(() => {
+    let alive = true;
+    api.invoiceTemplate
+      .get()
+      .then((t: InvoiceTemplate) => {
+        if (!alive) return;
+        setTax({
+          tax_enabled: t.tax_enabled,
+          tax_label: t.tax_label,
+          tax_rate: t.tax_rate,
+          tax_inclusive: t.tax_inclusive,
+        });
+      })
+      .catch(() => { /* keep defaults (GST 10% exclusive) if template not yet saved */ });
+    const onUpdate = () => {
+      api.invoiceTemplate.get().then((t) => {
+        setTax({
+          tax_enabled: t.tax_enabled,
+          tax_label: t.tax_label,
+          tax_rate: t.tax_rate,
+          tax_inclusive: t.tax_inclusive,
+        });
+      }).catch(() => {});
+    };
+    window.addEventListener('business-profile-updated', onUpdate);
+    return () => {
+      alive = false;
+      window.removeEventListener('business-profile-updated', onUpdate);
+    };
+  }, []);
+
+  const showTax = taxActive(tax);
+  const taxColHeader = showTax ? `${tax.tax_label} (${tax.tax_rate}%)` : '';
+  const amountInputPreview = useMemo(() => {
+    const n = parseFloat(formData.amount);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return splitLine(n, tax);
+  }, [formData.amount, tax]);
 
   async function loadTransactions() {
     try {
@@ -239,7 +280,9 @@ export function TransactionHistory({
               <input type="text" value={customerName} readOnly className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-100 text-gray-600" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Amount {showTax && (tax.tax_inclusive ? '(tax included)' : '(pre-tax)')}
+              </label>
               <input
                 type="number"
                 step="0.01"
@@ -249,6 +292,29 @@ export function TransactionHistory({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 placeholder="0.00"
               />
+              {showTax && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {amountInputPreview ? (
+                    tax.tax_inclusive ? (
+                      <>
+                        Price {formatMoney(amountInputPreview.price)} + {tax.tax_label} {formatMoney(amountInputPreview.tax)} ={' '}
+                        <strong>{formatMoney(amountInputPreview.lineTotal)}</strong> (included)
+                      </>
+                    ) : (
+                      <>
+                        Price {formatMoney(amountInputPreview.price)} + {tax.tax_label} {tax.tax_rate}%{' '}
+                        {formatMoney(amountInputPreview.tax)} ={' '}
+                        <strong>Total {formatMoney(amountInputPreview.lineTotal)}</strong>
+                      </>
+                    )
+                  ) : (
+                    <>
+                      {tax.tax_label} {tax.tax_rate}% will be{' '}
+                      {tax.tax_inclusive ? 'shown separately' : 'added on top'}. Configure in Business profile.
+                    </>
+                  )}
+                </p>
+              )}
             </div>
             <div className="md:col-span-2 lg:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">Items / Tasks</label>
@@ -335,7 +401,15 @@ export function TransactionHistory({
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Items / Tasks</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Finish date</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                  {showTax ? 'Price' : 'Amount'}
+                </th>
+                {showTax && (
+                  <>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">{taxColHeader}</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                  </>
+                )}
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Due date</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Paid</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Paid date</th>
@@ -347,13 +421,22 @@ export function TransactionHistory({
               {transactions.map((tx) => {
                 const t = tx as Transaction & { finish_date?: string | null; due_date?: string | null; paid_fully?: boolean; paid_at?: string | null; customer_name?: string };
                 const paid = t.paid_fully ?? false;
+                const line = splitLine(Number(tx.amount) || 0, tax);
                 return (
                   <tr key={tx.id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-900">{formatDate(tx.date)}</td>
                     <td className="px-3 py-2 text-gray-700">{t.customer_name ?? customerName}</td>
                     <td className="px-3 py-2 text-gray-700 max-w-[12rem] truncate" title={tx.description || ''}>{tx.description || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{t.finish_date ? formatDate(t.finish_date) : '—'}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900">{formatCurrency(tx.amount)}</td>
+                    <td className="px-3 py-2 text-right font-medium text-gray-900">
+                      {showTax ? formatMoney(line.price) : formatCurrency(tx.amount)}
+                    </td>
+                    {showTax && (
+                      <>
+                        <td className="px-3 py-2 text-right text-gray-700">{formatMoney(line.tax)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatMoney(line.lineTotal)}</td>
+                      </>
+                    )}
                     <td className="px-3 py-2 text-gray-600">{t.due_date ? formatDate(t.due_date) : '—'}</td>
                     <td className="px-3 py-2">
                       <label className="flex items-center gap-1 cursor-pointer">
