@@ -212,6 +212,10 @@ const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_T
   ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
   : null;
 const twilioPhone = process.env.TWILIO_PHONE_NUMBER || '';
+// Preferred way to send — a Messaging Service picks the right sender (number, short code, or
+// Alphanumeric Sender ID) per destination country automatically. Falls back to the single
+// `TWILIO_PHONE_NUMBER` below if this isn't set.
+const twilioMessagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || '';
 
 /** Option A: platform From (verified in Resend) + merchant Reply-To. */
 const REPLY_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
@@ -586,16 +590,56 @@ app.post('/api/customers/:id/send-sms', async (req, res) => {
     const rows = await sql`SELECT id, name, phone, amount_owed, due_date FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
-    // Load the merchant's Business profile to get their default SMS country code (e.g. +61 for AU).
-    const template = await loadInvoiceTemplate(req.userId);
+
+    // Merchant config: Business profile (company, contact, phone, email, country code) + SMS template.
+    const invTpl = await loadInvoiceTemplate(req.userId);
+    const smsTpl = await loadSmsTemplate(req.userId);
+
+    // Normalize phone — trusts E.164 as-is, otherwise expands local numbers using the
+    // merchant's default country code from Business profile.
     const rawPhone = req.body?.phone || c.phone || '';
-    const to = normalizePhoneE164(rawPhone, template.sms_country_code);
+    const to = normalizePhoneE164(rawPhone, invTpl.sms_country_code);
     if (!to) return res.status(400).json({ error: 'Customer has no valid phone number for SMS. Use an international format (e.g. +61 412 345 678) or set the default country code in Business profile.' });
-    const body = req.body?.message || `Hi ${c.name}, friendly reminder: you have an outstanding balance. Please contact us to arrange payment.`;
-    if (!twilioClient || !twilioPhone) return res.status(503).json({ error: 'SMS is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in server environment.' });
-    await twilioClient.messages.create({ body, from: twilioPhone, to });
+
+    if (!twilioClient || (!twilioMessagingServiceSid && !twilioPhone)) {
+      return res.status(503).json({ error: 'SMS is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and either TWILIO_MESSAGING_SERVICE_SID (preferred) or TWILIO_PHONE_NUMBER in server environment.' });
+    }
+
+    // Build variables. Business-side values fall back to sensible defaults so the message
+    // never shows a raw "{{contact_name}}" token if the merchant hasn't filled in a field.
+    const amountOwed = c.amount_owed != null ? Number(c.amount_owed) : 0;
+    const dueDateStr = c.due_date ? String(c.due_date).slice(0, 10) : '';
+    const businessName = invTpl.company_name || friendlyFromLogin(req.userEmail);
+    const contactEmail = (invTpl.email && isValidReplyEmail(invTpl.email)) ? invTpl.email : (req.userEmail || '');
+    const vars = {
+      customer_name: c.name || 'there',
+      amount: `$${amountOwed.toFixed(2)}`,
+      due_date: dueDateStr ? ` by ${dueDateStr}` : '',
+      business_name: businessName,
+      contact_name: invTpl.contact_name || businessName,
+      contact_number: invTpl.phone || '',
+      contact_email: contactEmail,
+    };
+    // Allow an ad-hoc override (e.g. future "send custom SMS" UI) while defaulting to the template.
+    const bodySource = (req.body?.message && String(req.body.message).trim()) || smsTpl.body || DEFAULT_SMS.body;
+    const body = applySmsTemplate(bodySource, vars);
+
+    // Messaging Service SID (multi-country, auto-picks sender) is preferred. Fall back to
+    // the single configured number for simple setups.
+    const payload = twilioMessagingServiceSid
+      ? { body, messagingServiceSid: twilioMessagingServiceSid, to }
+      : { body, from: twilioPhone, to };
+    await twilioClient.messages.create(payload);
+
+    // Audit trail for the merchant ("Last SMS: ..." on the customer row). Wrapped in try/catch
+    // so a missing column on a fresh deploy doesn't break the send.
+    try {
+      await sql`UPDATE customers SET last_sms_sent_at = now(), updated_at = now() WHERE id = ${c.id} AND user_id = ${req.userId}`;
+    } catch (stampErr) {
+      if (!stampErr.message || !/last_sms_sent_at|column/.test(stampErr.message)) throw stampErr;
+    }
     await incrementSms(req.userId);
-    res.json({ sent: true, channel: 'sms' });
+    res.json({ sent: true, channel: 'sms', to, preview: body });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -654,6 +698,68 @@ function applyEmailTemplate(body, vars) {
   }
   return out.replace(/\n/g, '<br>');
 }
+
+// --- SMS template (one-way reminder) ---
+/**
+ * Default SMS body. Kept short to fit one SMS segment (160 GSM-7 chars) for common
+ * customer/business names. Users can edit in Email Templates → SMS template.
+ */
+const DEFAULT_SMS = {
+  body: 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Any questions, please contact {{contact_name}} on {{contact_number}}. Thanks — {{business_name}}',
+};
+
+/** Plain-text template renderer: replaces {{var}} tokens, no HTML escaping, no <br>. */
+function applySmsTemplate(body, vars) {
+  let out = String(body ?? '');
+  for (const [key, value] of Object.entries(vars)) {
+    out = out.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value == null ? '' : String(value));
+  }
+  // Collapse runs of whitespace/newlines that result from empty variables so messages don't
+  // contain awkward double spaces.
+  return out.replace(/[ \t]+/g, ' ').replace(/ *\n+ */g, '\n').trim();
+}
+
+async function loadSmsTemplate(userId) {
+  try {
+    const rows = await sql`SELECT sms_template FROM users WHERE id = ${userId}`;
+    const t = rows[0]?.sms_template;
+    if (typeof t === 'object' && t !== null && typeof t.body === 'string' && t.body.trim()) {
+      return { body: t.body };
+    }
+    return DEFAULT_SMS;
+  } catch (e) {
+    // Column may not exist yet on fresh deploys; fall back gracefully.
+    if (e.message && /sms_template|column/.test(e.message)) return DEFAULT_SMS;
+    throw e;
+  }
+}
+
+app.get('/api/sms-template', async (req, res) => {
+  try {
+    const tpl = await loadSmsTemplate(req.userId);
+    res.json(tpl);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/sms-template', async (req, res) => {
+  try {
+    const raw = req.body && typeof req.body === 'object' ? req.body : {};
+    // Hard cap at 1000 chars — SMS is one-way and short by design; anything longer is a
+    // configuration mistake.
+    const tpl = { body: (raw.body != null ? String(raw.body) : DEFAULT_SMS.body).slice(0, 1000) };
+    await sql`
+      UPDATE users SET sms_template = ${JSON.stringify(tpl)}, updated_at = now()
+      WHERE id = ${req.userId}
+    `;
+    res.json(tpl);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // --- Invoice template (your company details + tax settings for the invoice) ---
 /** Default tax settings: GST @ 10%, enabled, exclusive. New users in AU get the right defaults out of the box. */

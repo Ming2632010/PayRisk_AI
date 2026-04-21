@@ -405,8 +405,9 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
     }
     setSendingAction('sms');
     try {
-      await api.customers.sendSms(customer.id);
-      alert(`SMS sent to ${customer.name}.`);
+      const result = await api.customers.sendSms(customer.id);
+      alert(`SMS sent to ${customer.name}${result?.to ? ` (${result.to})` : ''}.`);
+      loadCustomers();
       onDueTodayRefresh?.();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to send SMS');
@@ -579,7 +580,8 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                 placeholder="+61 412 345 678 or 0412 345 678"
               />
               <p className="text-xs text-gray-500 mt-1">
-                International format (with <code>+</code>) is best. Local numbers are accepted and will be expanded using the country code from Business profile.
+                International format (with <code>+</code>) is best. Local numbers are accepted and
+                will be expanded using the country code from Business profile.
               </p>
             </div>
 
@@ -1003,12 +1005,18 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                             <button
                               onClick={() => handleSendSms(customer)}
                               disabled={sendingAction !== null}
-                              className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                              className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                                (customer as { last_sms_sent_at?: string | null }).last_sms_sent_at
+                                  ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                                  : 'text-indigo-600 hover:bg-indigo-50'
+                              }`}
                             >
                               <MessageSquare className="w-4 h-4" />
                             </button>
                             <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
-                              Send SMS
+                              {(customer as { last_sms_sent_at?: string | null }).last_sms_sent_at
+                                ? `SMS sent ${formatDate((customer as { last_sms_sent_at?: string }).last_sms_sent_at!.slice(0, 10))}`
+                                : 'Send SMS'}
                             </span>
                           </div>
 

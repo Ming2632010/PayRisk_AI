@@ -72,6 +72,8 @@ export type EmailTemplates = {
 
 export type InvoiceEmailTemplate = { subject: string; body: string };
 
+export type SmsTemplate = { body: string };
+
 export type InvoiceSummary = {
   id: number;
   invoice_number: string;
@@ -140,6 +142,11 @@ export const api = {
     save: (body: Partial<InvoiceEmailTemplate>) =>
       request<InvoiceEmailTemplate>('/api/invoice-email-template', { method: 'PUT', body }),
   },
+  smsTemplate: {
+    get: () => request<SmsTemplate>('/api/sms-template'),
+    save: (body: Partial<SmsTemplate>) =>
+      request<SmsTemplate>('/api/sms-template', { method: 'PUT', body }),
+  },
   invoices: {
     get: (id: number) => request<InvoiceDetail>(`/api/invoices/${id}`),
   },
@@ -162,7 +169,7 @@ export const api = {
         method: 'POST',
       }),
     sendSms: (id: number, body?: { message?: string; phone?: string }) =>
-      request<{ sent: boolean; channel: string }>(`/api/customers/${id}/send-sms`, {
+      request<{ sent: boolean; channel: string; to?: string; preview?: string }>(`/api/customers/${id}/send-sms`, {
         method: 'POST',
         body: body || {},
       }),
