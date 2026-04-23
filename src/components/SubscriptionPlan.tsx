@@ -29,11 +29,12 @@ const PLAN_LABELS: Record<Subscription['plan'], string> = {
   professional: 'Professional',
   business: 'Business',
 };
+/** Shown to users so it is clear Stripe charges in USD (not local currency on the label). */
 const PLAN_PRICES: Record<Subscription['plan'], string> = {
-  starter: '$0',
-  basic: '$19',
-  professional: '$49',
-  business: '$99',
+  starter: '$0 USD',
+  basic: '$19 USD',
+  professional: '$49 USD',
+  business: '$99 USD',
 };
 const PLAN_EMAILS: Record<Subscription['plan'], number> = {
   starter: 50,
@@ -73,21 +74,41 @@ export default function SubscriptionPlan() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    load();
-  }, []);
-
-  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success') === '1') {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('success');
-      if (!url.searchParams.get('page')) {
-        url.searchParams.set('page', 'plan');
-      }
-      const qs = url.searchParams.toString();
-      window.history.replaceState({}, '', url.pathname + (qs ? `?${qs}` : ''));
-      load();
+      const sessionId = params.get('session_id');
+      (async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          if (sessionId) {
+            const updated = await api.subscription.confirmCheckout(sessionId);
+            setSub(updated);
+          } else {
+            await load();
+          }
+        } catch (e) {
+          setError(
+            e instanceof Error
+              ? e.message
+              : 'Could not confirm your payment. If you were charged, refresh this page in a moment or contact support with your account email.',
+          );
+          await load();
+        } finally {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('success');
+          url.searchParams.delete('session_id');
+          if (!url.searchParams.get('page')) {
+            url.searchParams.set('page', 'plan');
+          }
+          const qs = url.searchParams.toString();
+          window.history.replaceState({}, '', url.pathname + (qs ? `?${qs}` : ''));
+          setLoading(false);
+        }
+      })();
+      return;
     }
+    load();
   }, []);
 
   async function load() {
@@ -116,7 +137,7 @@ export default function SubscriptionPlan() {
     if (!sub || sub.plan === plan) return;
     const currentIndex = PLAN_ORDER.indexOf(sub.plan);
     const targetIndex = PLAN_ORDER.indexOf(plan);
-    const isUpgradeToPaid = targetIndex > currentIndex && PLAN_PRICES[plan] !== '$0';
+    const isUpgradeToPaid = targetIndex > currentIndex && plan !== 'starter';
     if (isUpgradeToPaid) {
       if (isStandaloneApp()) {
         openBillingWebsite();
@@ -175,6 +196,10 @@ export default function SubscriptionPlan() {
         <h2 className="text-xl font-semibold text-gray-900">Your plan</h2>
         <p className="text-sm text-gray-500 mt-1">
           Manage subscription and usage. Plans and billing are managed on our website.
+        </p>
+        <p className="text-sm text-slate-600 mt-2">
+          <strong>Currency:</strong> prices on this page are in <strong>US dollars (USD)</strong>. Stripe
+          charges in USD; your bank or card may show a converted amount in your local currency.
         </p>
       </div>
 
@@ -285,7 +310,7 @@ export default function SubscriptionPlan() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left font-medium text-gray-700">Plan</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-700">Price</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-700">Price (USD / mo)</th>
               <th className="px-4 py-3 text-left font-medium text-gray-700">Emails/mo</th>
               <th className="px-4 py-3 text-left font-medium text-gray-700">SMS/mo</th>
             </tr>

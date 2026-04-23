@@ -126,6 +126,12 @@ export const api = {
         method: 'POST',
         body: { plan },
       }),
+    /** Call after returning from Stripe with ?page=plan&success=1&session_id=… */
+    confirmCheckout: (sessionId: string) =>
+      request<Subscription>('/api/subscription/confirm-checkout', {
+        method: 'POST',
+        body: { sessionId },
+      }),
   },
   invoiceTemplate: {
     get: () => request<InvoiceTemplate>('/api/invoice-template'),

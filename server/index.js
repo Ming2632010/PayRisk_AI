@@ -52,6 +52,11 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
       } catch (err) {
         console.error('Webhook: failed to update plan', err);
       }
+    } else {
+      console.warn(
+        'Stripe webhook: checkout.session.completed ignored — missing or invalid metadata (userId / plan).',
+        { userId, plan },
+      );
     }
   }
   res.sendStatus(200);
@@ -301,10 +306,51 @@ app.post('/api/subscription/checkout-session', async (req, res) => {
         quantity: 1,
       }],
       metadata: { userId: req.userId, plan },
-      success_url: `${FRONTEND_URL}?page=plan&success=1`,
+      success_url: `${FRONTEND_URL}?page=plan&success=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${FRONTEND_URL}?page=plan&cancel=1`,
     });
     res.json({ url: session.url });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * After Stripe Checkout redirects back with ?session_id=…, the client calls this so the plan
+ * updates immediately. The Stripe webhook also updates the row when it fires — if the webhook
+ * URL or signing secret is misconfigured, this path still works.
+ */
+app.post('/api/subscription/confirm-checkout', async (req, res) => {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Billing is not configured. Set STRIPE_SECRET_KEY in server environment.' });
+    const sessionId = req.body?.sessionId;
+    if (!sessionId || typeof sessionId !== 'string') {
+      return res.status(400).json({ error: 'sessionId is required.' });
+    }
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.mode !== 'payment') {
+      return res.status(400).json({ error: 'Invalid checkout session type.' });
+    }
+    if (session.payment_status !== 'paid') {
+      return res.status(400).json({
+        error: 'Payment is not complete yet. Wait a few seconds and try refreshing the Plan page.',
+      });
+    }
+    const userId = session.metadata?.userId;
+    const plan = session.metadata?.plan;
+    if (!plan || !['basic', 'professional', 'business'].includes(plan)) {
+      return res.status(400).json({ error: 'Checkout session is missing a valid plan.' });
+    }
+    if (!userId || userId !== req.userId) {
+      return res.status(403).json({
+        error: 'This payment belongs to a different account. Sign in with the same email you used for checkout.',
+      });
+    }
+    await sql`UPDATE users SET plan = ${plan}, updated_at = now() WHERE id = ${req.userId}`;
+    await ensurePeriod(req.userId);
+    const sub = await getSubscription(req.userId);
+    res.json(sub);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
