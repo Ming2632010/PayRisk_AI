@@ -4,7 +4,7 @@ import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { neon } from '@neondatabase/serverless';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, randomBytes } from 'crypto';
 import { Resend } from 'resend';
 import twilio from 'twilio';
 import Stripe from 'stripe';
@@ -121,6 +121,99 @@ app.post('/auth/login', async (req, res) => {
     res.json({ token, user: { id: user.id, email: user.email } });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Generic response so unknown emails do not reveal whether an account exists. */
+const FORGOT_PASSWORD_RESPONSE = {
+  ok: true,
+  message: 'If an account exists for that email, you will receive a password reset link shortly.',
+};
+
+app.post('/auth/forgot-password', async (req, res) => {
+  try {
+    const email = (req.body?.email && String(req.body.email).trim().toLowerCase()) || '';
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: 'A valid email is required.' });
+    }
+    if (!resendApi) {
+      return res.status(503).json({
+        error: 'Password reset email is not configured. Set RESEND_API_KEY and FROM_EMAIL on the server.',
+      });
+    }
+    const rows = await sql`SELECT id, email FROM users WHERE email = ${email}`;
+    if (rows.length === 0) {
+      return res.json(FORGOT_PASSWORD_RESPONSE);
+    }
+    const user = rows[0];
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await sql`DELETE FROM password_reset_tokens WHERE user_id = ${user.id}`;
+    await sql`
+      INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+      VALUES (${user.id}, ${tokenHash}, ${expiresAt.toISOString()})
+    `;
+    const base = String(FRONTEND_URL).replace(/\/$/, '');
+    const resetUrlObj = new URL(base.includes('://') ? base : `https://${base}`);
+    resetUrlObj.searchParams.set('reset_token', rawToken);
+    const resetUrl = resetUrlObj.toString();
+    const { error } = await resendApi.emails.send({
+      from: formatResendFrom('PayRisk AI', fromEmail),
+      to: user.email,
+      subject: 'Reset your PayRisk AI password',
+      html: `<p>Hello,</p>
+<p>We received a request to reset the password for your PayRisk AI account.</p>
+<p><a href="${resetUrl}">Set a new password</a> (this link expires in one hour).</p>
+<p>If you did not request this, you can ignore this email. Your password will not change.</p>
+<p style="color:#666;font-size:12px">If the button does not work, copy and paste this URL into your browser:<br>${resetUrl}</p>`,
+    });
+    if (error) {
+      console.error('forgot-password email:', error);
+      return res.status(500).json({ error: error.message || 'Failed to send reset email' });
+    }
+    res.json(FORGOT_PASSWORD_RESPONSE);
+  } catch (e) {
+    console.error(e);
+    if (e.message && /password_reset_tokens|relation/.test(e.message)) {
+      return res.status(503).json({
+        error: 'Database migration required. Run neon_migration_password_reset.sql in Neon, then try again.',
+      });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/auth/reset-password', async (req, res) => {
+  try {
+    const rawToken = req.body?.token != null ? String(req.body.token) : '';
+    const password = req.body?.password != null ? String(req.body.password) : '';
+    if (!rawToken || !password || password.length < 6) {
+      return res.status(400).json({ error: 'Valid token and a new password (at least 6 characters) are required.' });
+    }
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const rows = await sql`
+      SELECT user_id FROM password_reset_tokens
+      WHERE token_hash = ${tokenHash} AND expires_at > now()
+    `;
+    if (rows.length === 0) {
+      return res.status(400).json({
+        error: 'This reset link is invalid or has expired. Request a new one from the sign-in page.',
+      });
+    }
+    const userId = rows[0].user_id;
+    const password_hash = await bcrypt.hash(password, 10);
+    await sql`UPDATE users SET password_hash = ${password_hash}, updated_at = now() WHERE id = ${userId}`;
+    await sql`DELETE FROM password_reset_tokens WHERE user_id = ${userId}`;
+    res.json({ ok: true, message: 'Your password has been updated. You can sign in now.' });
+  } catch (e) {
+    console.error(e);
+    if (e.message && /password_reset_tokens|relation/.test(e.message)) {
+      return res.status(503).json({
+        error: 'Database migration required. Run neon_migration_password_reset.sql in Neon, then try again.',
+      });
+    }
     res.status(500).json({ error: e.message });
   }
 });

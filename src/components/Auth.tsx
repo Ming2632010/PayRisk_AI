@@ -15,6 +15,8 @@ export function Auth({ onAuthSuccess }: AuthProps) {
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  /** Raw token from email link (`?reset_token=…`); kept in memory after URL is cleaned up. */
+  const [resetToken, setResetToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -47,8 +49,15 @@ export function Auth({ onAuthSuccess }: AuthProps) {
         setAuth(data.token, data.user);
         onAuthSuccess();
       } else if (mode === 'forgot') {
-        setMessage('Password reset is not configured. Please contact support.');
-        setTimeout(() => setMode('signin'), 3000);
+        const res = await fetch(`${API_URL}/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Could not send reset email');
+        setMessage(data.message || 'If an account exists for that email, check your inbox for a reset link.');
+        setMode('signin');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -61,16 +70,43 @@ export function Auth({ onAuthSuccess }: AuthProps) {
     e.preventDefault();
     setError('');
     setMessage('');
+    if (!resetToken.trim()) {
+      setError('Reset link is missing. Open the link from your email again, or request a new reset email.');
+      return;
+    }
     setLoading(true);
-    setMessage('Password reset is not configured. Please contact support.');
-    setLoading(false);
-    setTimeout(() => setMode('signin'), 2000);
+    try {
+      const res = await fetch(`${API_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken.trim(), password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not update password');
+      setPassword('');
+      setResetToken('');
+      setMessage(data.message || 'Your password has been updated. You can sign in now.');
+      setMode('signin');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash && hash.includes('type=recovery')) {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('reset_token');
+    if (token) {
+      setResetToken(token);
       setMode('reset');
+      setError('');
+      setMessage('');
+      setPassword('');
+      params.delete('reset_token');
+      const qs = params.toString();
+      const clean = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+      window.history.replaceState({}, '', clean);
     }
   }, []);
 
