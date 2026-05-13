@@ -15,6 +15,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   /** Raw token from email link (`?reset_token=…`); kept in memory after URL is cleaned up. */
   const [resetToken, setResetToken] = useState('');
   const [loading, setLoading] = useState(false);
@@ -74,6 +75,10 @@ export function Auth({ onAuthSuccess }: AuthProps) {
       setError('Reset link is missing. Open the link from your email again, or request a new reset email.');
       return;
     }
+    if (password !== passwordConfirm) {
+      setError('Passwords do not match. Please enter the same password twice.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/auth/reset-password`, {
@@ -84,6 +89,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not update password');
       setPassword('');
+      setPasswordConfirm('');
       setResetToken('');
       setMessage(data.message || 'Your password has been updated. You can sign in now.');
       setMode('signin');
@@ -103,6 +109,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
       setError('');
       setMessage('');
       setPassword('');
+      setPasswordConfirm('');
       params.delete('reset_token');
       const qs = params.toString();
       const clean = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
@@ -162,6 +169,23 @@ export function Auth({ onAuthSuccess }: AuthProps) {
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm new password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={passwordConfirm}
+                    onChange={(e) => setPasswordConfirm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                  />
+                </div>
               </div>
 
               <button
