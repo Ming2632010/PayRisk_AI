@@ -1,5 +1,6 @@
 // src/components/Auth.tsx
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Shield, Mail, Lock, ArrowLeft } from 'lucide-react';
 import { setAuth } from '../lib/auth';
 
@@ -21,11 +22,16 @@ export function Auth({ onAuthSuccess }: AuthProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setMessage('');
+    if (mode === 'signup' && !acceptedTerms) {
+      setError('Please agree to the Terms of Service to create an account.');
+      return;
+    }
     setLoading(true);
 
     try {
@@ -38,6 +44,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Sign up failed');
         setMessage('Account created! Sign in below.');
+        setAcceptedTerms(false);
         setMode('signin');
       } else if (mode === 'signin') {
         const res = await fetch(`${API_URL}/auth/login`, {
@@ -260,10 +267,34 @@ export function Auth({ onAuthSuccess }: AuthProps) {
                 </div>
               )}
 
+              {mode === 'signup' && (
+                <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-3">
+                  <input
+                    id="auth-accept-terms"
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={(e) => setAcceptedTerms(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="auth-accept-terms" className="text-sm text-gray-700 leading-snug">
+                    I agree to the{' '}
+                    <Link
+                      to="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline font-medium"
+                    >
+                      Terms of Service
+                    </Link>
+                    .
+                  </label>
+                </div>
+              )}
+
               {/* 提交按钮 */}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (mode === 'signup' && !acceptedTerms)}
                 className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
               >
                 {loading
@@ -286,6 +317,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
                     setMode('signup');
                     setError('');
                     setMessage('');
+                    setAcceptedTerms(false);
                   }}
                   className="text-blue-600 hover:text-blue-700 text-sm font-medium"
                 >
@@ -297,6 +329,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
                     setMode('signin');
                     setError('');
                     setMessage('');
+                    setAcceptedTerms(false);
                   }}
                   className="text-blue-600 hover:text-blue-700 text-sm font-medium"
                 >
@@ -317,6 +350,16 @@ export function Auth({ onAuthSuccess }: AuthProps) {
             </div>
           )}
         </div>
+
+        <p className="mt-6 text-center text-sm text-gray-500">
+          <Link to="/privacy" className="text-blue-600 hover:underline">
+            Privacy Policy
+          </Link>
+          <span className="mx-2">·</span>
+          <Link to="/terms" className="text-blue-600 hover:underline">
+            Terms of Service
+          </Link>
+        </p>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Shield, LayoutDashboard, Users, Mail, LogOut, Sliders, CreditCard, Bell, Building2 } from 'lucide-react';
 import { getToken, clearAuth } from './lib/auth';
 import { api, type DueTodayResponse } from './lib/api';
@@ -264,6 +265,16 @@ function App() {
         {currentPage === 'custom-rules' && <CustomRules />}
         {currentPage === 'plan' && <SubscriptionPlan />}
       </main>
+
+      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 text-center text-xs text-gray-500">
+        <Link to="/privacy" className="text-blue-600 hover:underline">
+          Privacy Policy
+        </Link>
+        <span className="mx-2">·</span>
+        <Link to="/terms" className="text-blue-600 hover:underline">
+          Terms of Service
+        </Link>
+      </footer>
     </div>
   );
 }
