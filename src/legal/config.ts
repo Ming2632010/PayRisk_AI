@@ -5,7 +5,7 @@
 export const SITE_NAME = 'PayRisk AI';
 
 export const LEGAL_CONTACT_EMAIL =
-  import.meta.env.VITE_LEGAL_CONTACT_EMAIL ?? 'support@yourdomain.com';
+  import.meta.env.VITE_LEGAL_CONTACT_EMAIL ?? 'info@payriskai.com';
 
 /** Shown as “Last updated” on legal pages. Update when you change the documents. */
 export const LEGAL_LAST_UPDATED = 'May 15, 2026';

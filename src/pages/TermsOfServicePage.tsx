@@ -5,7 +5,7 @@ export function TermsOfServicePage() {
   return (
     <LegalDocumentLayout title="Terms of Service">
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">1. Agreement</h2>
+        <h2 className="text-lg font-semibold text-gray-900">1. Agreement</h2>
         <p className="mt-3">
           These Terms of Service (“Terms”) govern your access to and use of {SITE_NAME} (the
           “Service”). By creating an account or using the Service, you agree to these Terms. If you do
@@ -14,7 +14,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">2. Description of the Service</h2>
+        <h2 className="text-lg font-semibold text-gray-900">2. Description of the Service</h2>
         <p className="mt-3">
           {SITE_NAME} provides tools for businesses to track customers, amounts owed, due dates, and
           related workflows, and to send communications such as email and SMS reminders as you
@@ -24,7 +24,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">3. Accounts and security</h2>
+        <h2 className="text-lg font-semibold text-gray-900">3. Accounts and security</h2>
         <ul className="mt-3 list-disc pl-5 space-y-2">
           <li>You must provide accurate registration information and keep it up to date.</li>
           <li>
@@ -42,7 +42,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">4. SMS program (Account Notifications)</h2>
+        <h2 className="text-lg font-semibold text-gray-900">4. SMS program (Account Notifications)</h2>
         <p className="mt-3">
           The Service may allow you to send SMS messages to your customers regarding payment and
           account-related reminders. By using SMS features, you represent and warrant that:
@@ -57,21 +57,27 @@ export function TermsOfServicePage() {
             misleading.
           </li>
           <li>
-            You will honor opt-out requests (including <strong className="font-semibold">STOP</strong>{' '}
-            and similar keywords where applicable for your messaging configuration) promptly and in
-            accordance with applicable law and carrier requirements.
+            You will honor opt-out requests (including the{' '}
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-sm font-medium text-gray-800">
+              STOP
+            </span>{' '}
+            keyword where applicable for your messaging configuration) promptly and in accordance with
+            applicable law and carrier requirements.
           </li>
           <li>
-            You will provide a clear way for recipients to get help (for example replying{' '}
-            <strong className="font-semibold">HELP</strong> where you configure auto-replies, and/or
-            your business contact details in the message).
+            You will provide a clear way for recipients to get help (for example replying with the{' '}
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-sm font-medium text-gray-800">
+              HELP
+            </span>{' '}
+            keyword where you configure auto-replies, and/or your business contact details in the
+            message).
           </li>
         </ul>
         <p className="mt-3">
-          <strong className="font-medium text-gray-900">Program description:</strong> SMS messages
-          sent through {SITE_NAME} are initiated by your business and relate to payment, invoice, or
-          account reminders tied to your customer records. Message frequency varies based on your
-          usage. <strong className="font-semibold">Message and data rates may apply.</strong>
+          <span className="font-medium text-gray-900">Program description:</span> SMS messages sent
+          through {SITE_NAME} are initiated by your business and relate to payment, invoice, or account
+          reminders tied to your customer records. Message frequency varies based on your usage.{' '}
+          <span className="text-gray-800">Message and data rates may apply.</span>
         </p>
         <p className="mt-3">
           Carrier delivery is not guaranteed. You are responsible for compliance with rules such as
@@ -81,7 +87,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">5. Email</h2>
+        <h2 className="text-lg font-semibold text-gray-900">5. Email</h2>
         <p className="mt-3">
           Email sent through the Service must comply with applicable anti-spam laws (including
           accurate headers, honoring unsubscribe requests where required, and lawful consent).
@@ -89,7 +95,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">6. Your responsibilities and acceptable use</h2>
+        <h2 className="text-lg font-semibold text-gray-900">6. Your responsibilities and acceptable use</h2>
         <p className="mt-3">You agree not to:</p>
         <ul className="mt-3 list-disc pl-5 space-y-2">
           <li>Use the Service for unlawful, harassing, fraudulent, or harmful purposes.</li>
@@ -104,7 +110,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">7. Fees and billing</h2>
+        <h2 className="text-lg font-semibold text-gray-900">7. Fees and billing</h2>
         <p className="mt-3">
           Paid plans, taxes, and payment processing are handled as presented at checkout (for example
           via our payment processor). Failure to pay may result in suspension or termination of
@@ -113,7 +119,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">8. Intellectual property</h2>
+        <h2 className="text-lg font-semibold text-gray-900">8. Intellectual property</h2>
         <p className="mt-3">
           We own the Service, branding, and related intellectual property. Subject to these Terms, we
           grant you a limited, non-exclusive, non-transferable license to use the Service for your
@@ -123,7 +129,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">9. Third-party services</h2>
+        <h2 className="text-lg font-semibold text-gray-900">9. Third-party services</h2>
         <p className="mt-3">
           The Service relies on third-party infrastructure (including hosting, messaging, and
           payments). Your use may be subject to those providers’ terms and policies.
@@ -131,27 +137,27 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">10. Disclaimers</h2>
-        <p className="mt-3">
-          THE SERVICE IS PROVIDED “AS IS” AND “AS AVAILABLE” WITHOUT WARRANTIES OF ANY KIND, WHETHER
-          EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
-          NON-INFRINGEMENT, TO THE MAXIMUM EXTENT PERMITTED BY LAW.
+        <h2 className="text-lg font-semibold text-gray-900">10. Disclaimers</h2>
+        <p className="mt-3 text-[15px] leading-relaxed">
+          The Service is provided on an “as is” and “as available” basis, without warranties of any
+          kind, whether express or implied, including implied warranties of merchantability, fitness
+          for a particular purpose, and non-infringement, to the maximum extent permitted by law.
         </p>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">11. Limitation of liability</h2>
-        <p className="mt-3">
-          TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE AND OUR SUPPLIERS WILL NOT BE LIABLE FOR ANY
-          INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES, OR ANY LOSS OF PROFITS,
-          REVENUE, GOODWILL, OR DATA. OUR AGGREGATE LIABILITY FOR ALL CLAIMS RELATING TO THE SERVICE
-          WILL NOT EXCEED THE AMOUNTS YOU PAID US FOR THE SERVICE IN THE TWELVE (12) MONTHS BEFORE THE
-          CLAIM (OR, IF NO FEES APPLIED, ONE HUNDRED DOLLARS (USD $100)).
+        <h2 className="text-lg font-semibold text-gray-900">11. Limitation of liability</h2>
+        <p className="mt-3 text-[15px] leading-relaxed">
+          To the maximum extent permitted by law, we and our suppliers will not be liable for any
+          indirect, incidental, special, consequential, or exemplary damages, or any loss of profits,
+          revenue, goodwill, or data. Our aggregate liability for all claims relating to the Service
+          will not exceed the amounts you paid us for the Service in the twelve (12) months before
+          the claim (or, if no fees applied, one hundred dollars (USD $100)).
         </p>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">12. Indemnity</h2>
+        <h2 className="text-lg font-semibold text-gray-900">12. Indemnity</h2>
         <p className="mt-3">
           You will defend and indemnify us against claims, damages, losses, and expenses (including
           reasonable legal fees) arising from your use of the Service, your customer data, your
@@ -160,7 +166,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">13. Suspension and termination</h2>
+        <h2 className="text-lg font-semibold text-gray-900">13. Suspension and termination</h2>
         <p className="mt-3">
           We may suspend or terminate access if you materially breach these Terms, create security
           or legal risk, or if we are required to by law. You may stop using the Service at any time.
@@ -169,7 +175,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">14. Governing law</h2>
+        <h2 className="text-lg font-semibold text-gray-900">14. Governing law</h2>
         <p className="mt-3">
           These Terms are governed by the laws of {LEGAL_JURISDICTION}, without regard to conflict
           of law principles, except where mandatory consumer protections in your country require
@@ -178,7 +184,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">15. Changes</h2>
+        <h2 className="text-lg font-semibold text-gray-900">15. Changes</h2>
         <p className="mt-3">
           We may modify these Terms. We will post the updated Terms on this page and update the “Last
           updated” date. Continued use after changes become effective constitutes acceptance unless
@@ -187,7 +193,7 @@ export function TermsOfServicePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">16. Contact</h2>
+        <h2 className="text-lg font-semibold text-gray-900">16. Contact</h2>
         <p className="mt-3">
           Questions about these Terms:{' '}
           <a className="text-blue-600 hover:underline" href={`mailto:${LEGAL_CONTACT_EMAIL}`}>

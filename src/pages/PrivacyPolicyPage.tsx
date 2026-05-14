@@ -5,7 +5,7 @@ export function PrivacyPolicyPage() {
   return (
     <LegalDocumentLayout title="Privacy Policy">
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">1. Introduction</h2>
+        <h2 className="text-lg font-semibold text-gray-900">1. Introduction</h2>
         <p className="mt-3">
           This Privacy Policy describes how {SITE_NAME} (“we”, “us”, or “our”) collects, uses, stores,
           and shares information when you use our website, application, and related services
@@ -14,7 +14,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">2. Who we are</h2>
+        <h2 className="text-lg font-semibold text-gray-900">2. Who we are</h2>
         <p className="mt-3">
           {SITE_NAME} helps businesses manage customer records, payment workflows, and communications
           such as email and SMS reminders. For privacy questions, contact us at{' '}
@@ -26,7 +26,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">3. Information we collect</h2>
+        <h2 className="text-lg font-semibold text-gray-900">3. Information we collect</h2>
         <ul className="mt-3 list-disc pl-5 space-y-2">
           <li>
             <strong className="font-medium text-gray-900">Account and authentication.</strong> Email
@@ -56,7 +56,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">4. How we use information</h2>
+        <h2 className="text-lg font-semibold text-gray-900">4. How we use information</h2>
         <p className="mt-3">We use information to:</p>
         <ul className="mt-3 list-disc pl-5 space-y-2">
           <li>Provide, operate, maintain, and improve the Service.</li>
@@ -75,7 +75,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">5. SMS and email delivery</h2>
+        <h2 className="text-lg font-semibold text-gray-900">5. SMS and email delivery</h2>
         <p className="mt-3">
           When you use {SITE_NAME} to send SMS or email to your customers, we transmit content through
           messaging providers (for example Twilio for SMS and an email delivery provider for
@@ -86,7 +86,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">6. Merchants and end-users</h2>
+        <h2 className="text-lg font-semibold text-gray-900">6. Merchants and end-users</h2>
         <p className="mt-3">
           If you are a business user (“merchant”) and you enter information about your customers into
           the Service, you are responsible for ensuring you have a lawful basis to collect and use
@@ -98,7 +98,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">7. Legal bases (where applicable)</h2>
+        <h2 className="text-lg font-semibold text-gray-900">7. Legal bases (where applicable)</h2>
         <p className="mt-3">
           Where laws such as the GDPR or UK GDPR apply, we rely on appropriate bases such as: (a)
           performance of a contract with you; (b) our legitimate interests in operating and securing
@@ -108,7 +108,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">8. Retention</h2>
+        <h2 className="text-lg font-semibold text-gray-900">8. Retention</h2>
         <p className="mt-3">
           We retain information for as long as your account is active and as needed to provide the
           Service, comply with legal obligations, resolve disputes, and enforce our agreements.
@@ -118,7 +118,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">9. Security</h2>
+        <h2 className="text-lg font-semibold text-gray-900">9. Security</h2>
         <p className="mt-3">
           We implement reasonable technical and organizational measures designed to protect
           information against unauthorized access, loss, or alteration. No method of transmission
@@ -127,7 +127,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">10. International transfers</h2>
+        <h2 className="text-lg font-semibold text-gray-900">10. International transfers</h2>
         <p className="mt-3">
           We may process and store information in countries other than your own, including where our
           service providers operate. Where required, we take steps designed to ensure appropriate
@@ -136,7 +136,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">11. Your rights</h2>
+        <h2 className="text-lg font-semibold text-gray-900">11. Your rights</h2>
         <p className="mt-3">
           Depending on your location, you may have rights to access, correct, delete, restrict, or
           object to certain processing of your personal information, and to lodge a complaint with a
@@ -148,13 +148,16 @@ export function PrivacyPolicyPage() {
         </p>
         <p className="mt-3">
           If you received an SMS or email from a {SITE_NAME} merchant and want to opt out, follow the
-          instructions in that message (for example replying <strong className="font-semibold">STOP</strong>{' '}
+          instructions in that message (for example replying with{' '}
+          <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-sm font-medium text-gray-800">
+            STOP
+          </span>{' '}
           to SMS where supported) or contact the merchant directly.
         </p>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">12. Children</h2>
+        <h2 className="text-lg font-semibold text-gray-900">12. Children</h2>
         <p className="mt-3">
           The Service is not directed to children under 16, and we do not knowingly collect personal
           information from children under 16. If you believe we have collected such information,
@@ -163,7 +166,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">13. Changes</h2>
+        <h2 className="text-lg font-semibold text-gray-900">13. Changes</h2>
         <p className="mt-3">
           We may update this Privacy Policy from time to time. We will post the updated version on
           this page and update the “Last updated” date. If changes are material, we may provide
@@ -172,7 +175,7 @@ export function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold text-gray-900">14. Contact</h2>
+        <h2 className="text-lg font-semibold text-gray-900">14. Contact</h2>
         <p className="mt-3">
           Questions about this Privacy Policy:{' '}
           <a className="text-blue-600 hover:underline" href={`mailto:${LEGAL_CONTACT_EMAIL}`}>
