@@ -8,7 +8,20 @@ const DEFAULT_OFFER_SUBJECT = 'Special offer just for you';
 const DEFAULT_OFFER_BODY = "Hi {{customer_name}},\n\nThank you for being a valued customer. Here's a special offer just for you: {{offer_details}}.\n\nBest regards,\n{{your_name}}";
 const DEFAULT_INVOICE_SUBJECT = 'Invoice {{invoice_number}} from {{your_name}} – {{total}}';
 const DEFAULT_INVOICE_BODY = 'Hi {{customer_name}},\n\nPlease find your invoice {{invoice_number}} below. The total amount due is {{total}}{{due_date}}.\n\nThanks,\n{{your_name}}';
-const DEFAULT_SMS_BODY = 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. — {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.';
+const DEFAULT_SMS_BODY = 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. - {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.';
+
+/**
+ * Approximate Twilio Smart Encoding: replaces common “fancy” punctuation with GSM-7 equivalents
+ * before segment counting, so the UI matches typical Twilio billing more closely.
+ */
+function normalizeForSmsSegmentEstimate(text: string): string {
+  return text
+    .replace(/[\u2013\u2014]/g, '-') // en dash, em dash
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/\u2026/g, '...')
+    .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ');
+}
 
 /**
  * Predicts how Twilio will bill an SMS given its text. Twilio splits long messages into
@@ -18,8 +31,9 @@ const DEFAULT_SMS_BODY = 'Hi {{customer_name}}, friendly reminder: {{amount}} is
  */
 const GSM7_CHARS = /^[A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà\[\]^{|}~€\\`]*$/;
 function estimateSmsSegments(text: string): { length: number; segments: number; encoding: 'GSM-7' | 'UCS-2'; perSegment: number } {
-  const length = text.length;
-  const isGsm = GSM7_CHARS.test(text);
+  const normalized = normalizeForSmsSegmentEstimate(text);
+  const length = normalized.length;
+  const isGsm = GSM7_CHARS.test(normalized);
   const encoding = isGsm ? 'GSM-7' : 'UCS-2';
   if (length === 0) return { length, segments: 0, encoding, perSegment: isGsm ? 160 : 70 };
   if (isGsm) {
@@ -316,14 +330,15 @@ export default function EmailSettings() {
             </div>
             {smsStats.segments > 1 && (
               <p className="text-xs text-amber-700 mt-1">
-                ⚠️ Your message will be billed as {smsStats.segments} SMS. Consider shortening
-                for better deliverability and lower cost.
+                ⚠️ Preview may bill as {smsStats.segments} SMS segments (Twilio charges per segment).
+                Shorten the template if possible. Actual billing can be lower when Twilio Smart Encoding
+                converts punctuation; check Monitor → Logs after a test send.
               </p>
             )}
             {smsStats.encoding === 'UCS-2' && (
               <p className="text-xs text-amber-700 mt-1">
-                ⚠️ Contains a non-GSM character (emoji or special symbol) — reduces the
-                per-segment limit to {smsStats.perSegment} chars.
+                ⚠️ Preview treats this as UCS-2 (emoji or non-GSM text) — about {smsStats.perSegment} chars
+                per segment. Replace em dashes/curly quotes with plain ASCII, or remove emoji, to aim for one segment.
               </p>
             )}
           </div>

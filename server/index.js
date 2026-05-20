@@ -955,7 +955,7 @@ function applyEmailTemplate(body, vars) {
  * customer/business names. Users can edit in Email Templates → SMS template.
  */
 const DEFAULT_SMS = {
-  body: 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. — {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.',
+  body: 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. - {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.',
 };
 
 /** Plain-text template renderer: replaces {{var}} tokens, no HTML escaping, no <br>. */
