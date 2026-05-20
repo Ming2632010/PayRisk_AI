@@ -275,6 +275,14 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
     }
 
     const phone = normalizeNullableText(formData.phone);
+    const priorPhone = editingCustomer ? normalizeNullableText(editingCustomer.phone || '') : '';
+    const phoneChanged = editingCustomer ? phone !== priorPhone : Boolean(phone);
+    if (phoneChanged && phone && !smsConsentConfirmed) {
+      alert(
+        'Please confirm SMS permission when you add or change this customer’s phone number. You can still save other fields without checking the box if the phone number is unchanged.'
+      );
+      return;
+    }
 
     const customerDataForDb: Record<string, unknown> = {
       name: formData.name.trim(),
@@ -579,8 +587,8 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                   />
                   <label htmlFor="customer-sms-consent" className="text-sm text-gray-700 leading-snug">
                     I confirm this contact has agreed to receive payment and account-related SMS from
-                    my business (required to use <strong className="font-medium">Send SMS</strong>, not
-                    to save the phone number). See{' '}
+                    my business. Required when you <strong className="font-medium">add or change</strong>{' '}
+                    the phone number, and to use <strong className="font-medium">Send SMS</strong>. See{' '}
                     <Link
                       to="/terms"
                       target="_blank"

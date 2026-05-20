@@ -502,18 +502,36 @@ app.get('/api/customers', async (req, res) => {
   }
 });
 
-/** SMS consent timestamp: optional when saving a phone; required only when sending SMS. */
-function resolveSmsConsentAt(existingConsentAt, phone, smsConsentRequested) {
+/** Normalize phone for compare/save (trim only; E.164 normalization happens on send). */
+function normalizePhoneField(raw) {
+  if (raw == null) return null;
+  const trimmed = String(raw).trim();
+  return trimmed || null;
+}
+
+/**
+ * SMS consent timestamp.
+ * - Clearing phone clears consent.
+ * - New/changed phone requires sms_consent on the request (see PUT/POST guards).
+ * - Unchanged phone on update keeps existing consent without re-checking the box.
+ */
+function resolveSmsConsentAt(existingConsentAt, phone, smsConsentRequested, phoneChanged) {
   if (!phone) return null;
   if (smsConsentRequested) return existingConsentAt ?? new Date();
+  if (!phoneChanged) return existingConsentAt ?? null;
   return null;
 }
 
 app.post('/api/customers', async (req, res) => {
   try {
     const b = req.body;
-    const phone = b.phone != null && String(b.phone).trim() ? String(b.phone).trim() : null;
-    const smsConsentAt = resolveSmsConsentAt(null, phone, Boolean(b.sms_consent));
+    const phone = normalizePhoneField(b.phone);
+    if (phone && !b.sms_consent) {
+      return res.status(400).json({
+        error: 'Confirm SMS permission when adding a customer phone number.',
+      });
+    }
+    const smsConsentAt = resolveSmsConsentAt(null, phone, Boolean(b.sms_consent), true);
     let row;
     try {
       row = await sql`
@@ -563,20 +581,36 @@ app.put('/api/customers/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const b = req.body;
-    const phone = b.phone != null && String(b.phone).trim() ? String(b.phone).trim() : null;
+    const phone = normalizePhoneField(b.phone);
+    let existingPhone = null;
     let existingConsentAt = null;
     let existingRows;
     try {
       existingRows = await sql`
-        SELECT sms_consent_at FROM customers WHERE id = ${id} AND user_id = ${req.userId}
+        SELECT phone, sms_consent_at FROM customers WHERE id = ${id} AND user_id = ${req.userId}
       `;
+      existingPhone = normalizePhoneField(existingRows[0]?.phone);
       existingConsentAt = existingRows[0]?.sms_consent_at ?? null;
     } catch (selErr) {
       if (!selErr.message || !/sms_consent_at|column/.test(selErr.message)) throw selErr;
-      existingRows = await sql`SELECT id FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
+      existingRows = await sql`
+        SELECT phone FROM customers WHERE id = ${id} AND user_id = ${req.userId}
+      `;
+      existingPhone = normalizePhoneField(existingRows[0]?.phone);
     }
     if (existingRows.length === 0) return res.status(404).json({ error: 'Not found' });
-    const smsConsentAt = resolveSmsConsentAt(existingConsentAt, phone, Boolean(b.sms_consent));
+    const phoneChanged = phone !== existingPhone;
+    if (phone && phoneChanged && !b.sms_consent) {
+      return res.status(400).json({
+        error: 'Confirm SMS permission when adding or changing this customer’s phone number.',
+      });
+    }
+    const smsConsentAt = resolveSmsConsentAt(
+      existingConsentAt,
+      phone,
+      Boolean(b.sms_consent),
+      phoneChanged
+    );
     let rows;
     try {
       rows = await sql`
