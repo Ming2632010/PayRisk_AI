@@ -505,22 +505,56 @@ app.get('/api/customers', async (req, res) => {
 app.post('/api/customers', async (req, res) => {
   try {
     const b = req.body;
-    const row = await sql`
-      INSERT INTO customers (
-        user_id, name, email, phone, company, street_address, city, state_province,
-        postal_code, country, amount_owed, due_date, total_orders, average_order_value,
-        last_purchase_date, is_high_risk_industry, tags
-      ) VALUES (
-        ${req.userId}, ${b.name}, ${b.email}, ${b.phone ?? null}, ${b.company ?? null},
-        ${b.street_address ?? null}, ${b.city ?? null}, ${b.state_province ?? null},
-        ${b.postal_code ?? null}, ${b.country ?? null},
-        ${b.amount_owed != null ? Number(b.amount_owed) : 0},
-        ${b.due_date || null}, ${b.total_orders != null ? Number(b.total_orders) : 0},
-        ${b.average_order_value != null ? Number(b.average_order_value) : 0},
-        ${b.last_purchase_date || null}, ${Boolean(b.is_high_risk_industry)}, ${b.tags ?? []}
-      )
-      RETURNING *
-    `;
+    const phone = b.phone != null && String(b.phone).trim() ? String(b.phone).trim() : null;
+    if (phone && !b.sms_consent) {
+      return res.status(400).json({
+        error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
+      });
+    }
+    const smsConsentAt = phone && b.sms_consent ? new Date() : null;
+    let row;
+    try {
+      row = await sql`
+        INSERT INTO customers (
+          user_id, name, email, phone, company, street_address, city, state_province,
+          postal_code, country, amount_owed, due_date, total_orders, average_order_value,
+          last_purchase_date, is_high_risk_industry, tags, sms_consent_at
+        ) VALUES (
+          ${req.userId}, ${b.name}, ${b.email}, ${phone}, ${b.company ?? null},
+          ${b.street_address ?? null}, ${b.city ?? null}, ${b.state_province ?? null},
+          ${b.postal_code ?? null}, ${b.country ?? null},
+          ${b.amount_owed != null ? Number(b.amount_owed) : 0},
+          ${b.due_date || null}, ${b.total_orders != null ? Number(b.total_orders) : 0},
+          ${b.average_order_value != null ? Number(b.average_order_value) : 0},
+          ${b.last_purchase_date || null}, ${Boolean(b.is_high_risk_industry)}, ${b.tags ?? []},
+          ${smsConsentAt}
+        )
+        RETURNING *
+      `;
+    } catch (insertErr) {
+      if (!insertErr.message || !/sms_consent_at|column/.test(insertErr.message)) throw insertErr;
+      if (phone && !b.sms_consent) {
+        return res.status(400).json({
+          error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
+        });
+      }
+      row = await sql`
+        INSERT INTO customers (
+          user_id, name, email, phone, company, street_address, city, state_province,
+          postal_code, country, amount_owed, due_date, total_orders, average_order_value,
+          last_purchase_date, is_high_risk_industry, tags
+        ) VALUES (
+          ${req.userId}, ${b.name}, ${b.email}, ${phone}, ${b.company ?? null},
+          ${b.street_address ?? null}, ${b.city ?? null}, ${b.state_province ?? null},
+          ${b.postal_code ?? null}, ${b.country ?? null},
+          ${b.amount_owed != null ? Number(b.amount_owed) : 0},
+          ${b.due_date || null}, ${b.total_orders != null ? Number(b.total_orders) : 0},
+          ${b.average_order_value != null ? Number(b.average_order_value) : 0},
+          ${b.last_purchase_date || null}, ${Boolean(b.is_high_risk_industry)}, ${b.tags ?? []}
+        )
+        RETURNING *
+      `;
+    }
     res.status(201).json(row[0]);
   } catch (e) {
     console.error(e);
@@ -532,20 +566,52 @@ app.put('/api/customers/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const b = req.body;
-    const rows = await sql`
-      UPDATE customers SET
-        name = ${b.name}, email = ${b.email}, phone = ${b.phone ?? null}, company = ${b.company ?? null},
-        street_address = ${b.street_address ?? null}, city = ${b.city ?? null},
-        state_province = ${b.state_province ?? null}, postal_code = ${b.postal_code ?? null},
-        country = ${b.country ?? null}, amount_owed = ${Number(b.amount_owed) ?? 0},
-        due_date = ${b.due_date || null}, total_orders = ${Number(b.total_orders) ?? 0},
-        average_order_value = ${Number(b.average_order_value) ?? 0},
-        last_purchase_date = ${b.last_purchase_date || null},
-        is_high_risk_industry = ${Boolean(b.is_high_risk_industry)}, tags = ${b.tags ?? []},
-        updated_at = now()
-      WHERE id = ${id} AND user_id = ${req.userId}
-      RETURNING *
-    `;
+    const phone = b.phone != null && String(b.phone).trim() ? String(b.phone).trim() : null;
+    if (phone && !b.sms_consent) {
+      return res.status(400).json({
+        error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
+      });
+    }
+    const smsConsentAt = phone && b.sms_consent ? new Date() : null;
+    let rows;
+    try {
+      rows = await sql`
+        UPDATE customers SET
+          name = ${b.name}, email = ${b.email}, phone = ${phone}, company = ${b.company ?? null},
+          street_address = ${b.street_address ?? null}, city = ${b.city ?? null},
+          state_province = ${b.state_province ?? null}, postal_code = ${b.postal_code ?? null},
+          country = ${b.country ?? null}, amount_owed = ${Number(b.amount_owed) ?? 0},
+          due_date = ${b.due_date || null}, total_orders = ${Number(b.total_orders) ?? 0},
+          average_order_value = ${Number(b.average_order_value) ?? 0},
+          last_purchase_date = ${b.last_purchase_date || null},
+          is_high_risk_industry = ${Boolean(b.is_high_risk_industry)}, tags = ${b.tags ?? []},
+          sms_consent_at = ${smsConsentAt},
+          updated_at = now()
+        WHERE id = ${id} AND user_id = ${req.userId}
+        RETURNING *
+      `;
+    } catch (updateErr) {
+      if (!updateErr.message || !/sms_consent_at|column/.test(updateErr.message)) throw updateErr;
+      if (phone && !b.sms_consent) {
+        return res.status(400).json({
+          error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
+        });
+      }
+      rows = await sql`
+        UPDATE customers SET
+          name = ${b.name}, email = ${b.email}, phone = ${phone}, company = ${b.company ?? null},
+          street_address = ${b.street_address ?? null}, city = ${b.city ?? null},
+          state_province = ${b.state_province ?? null}, postal_code = ${b.postal_code ?? null},
+          country = ${b.country ?? null}, amount_owed = ${Number(b.amount_owed) ?? 0},
+          due_date = ${b.due_date || null}, total_orders = ${Number(b.total_orders) ?? 0},
+          average_order_value = ${Number(b.average_order_value) ?? 0},
+          last_purchase_date = ${b.last_purchase_date || null},
+          is_high_risk_industry = ${Boolean(b.is_high_risk_industry)}, tags = ${b.tags ?? []},
+          updated_at = now()
+        WHERE id = ${id} AND user_id = ${req.userId}
+        RETURNING *
+      `;
+    }
     if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
   } catch (e) {
@@ -726,9 +792,21 @@ app.post('/api/customers/:id/send-sms', async (req, res) => {
     const id = Number(req.params.id);
     const check = await canSendSms(req.userId);
     if (!check.ok) return res.status(403).json({ error: check.error });
-    const rows = await sql`SELECT id, name, phone, amount_owed, due_date FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
+    let rows;
+    try {
+      rows = await sql`SELECT id, name, phone, amount_owed, due_date, sms_consent_at FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
+    } catch (selErr) {
+      if (!selErr.message || !/sms_consent_at|column/.test(selErr.message)) throw selErr;
+      rows = await sql`SELECT id, name, phone, amount_owed, due_date FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
+    }
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
+
+    if (c.phone?.trim() && Object.prototype.hasOwnProperty.call(c, 'sms_consent_at') && !c.sms_consent_at) {
+      return res.status(403).json({
+        error: 'SMS not allowed for this customer until you confirm permission in Edit Customer (SMS consent checkbox).',
+      });
+    }
 
     // Merchant config: Business profile (company, contact, phone, email, country code) + SMS template.
     const invTpl = await loadInvoiceTemplate(req.userId);
@@ -844,7 +922,7 @@ function applyEmailTemplate(body, vars) {
  * customer/business names. Users can edit in Email Templates → SMS template.
  */
 const DEFAULT_SMS = {
-  body: 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Any questions, please contact {{contact_name}} on {{contact_number}}. Thanks — {{business_name}}',
+  body: 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. — {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.',
 };
 
 /** Plain-text template renderer: replaces {{var}} tokens, no HTML escaping, no <br>. */

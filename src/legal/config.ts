@@ -8,7 +8,7 @@ export const LEGAL_CONTACT_EMAIL =
   import.meta.env.VITE_LEGAL_CONTACT_EMAIL ?? 'info@payriskai.com';
 
 /** Shown as “Last updated” on legal pages. Update when you change the documents. */
-export const LEGAL_LAST_UPDATED = 'May 15, 2026';
+export const LEGAL_LAST_UPDATED = 'May 19, 2026';
 
 /**
  * Governing law clause in Terms — replace with your company’s jurisdiction after legal review.

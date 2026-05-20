@@ -90,6 +90,9 @@ export interface Database {
           last_purchase_date: string | null;
           is_high_risk_industry: boolean;
           tags: string[] | null;
+          /** Merchant confirmed permission to SMS this contact (A2P / compliance). */
+          sms_consent_at?: string | null;
+          last_sms_sent_at?: string | null;
           created_at: string;
           updated_at: string;
           user_id: string;

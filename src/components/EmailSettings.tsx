@@ -8,7 +8,7 @@ const DEFAULT_OFFER_SUBJECT = 'Special offer just for you';
 const DEFAULT_OFFER_BODY = "Hi {{customer_name}},\n\nThank you for being a valued customer. Here's a special offer just for you: {{offer_details}}.\n\nBest regards,\n{{your_name}}";
 const DEFAULT_INVOICE_SUBJECT = 'Invoice {{invoice_number}} from {{your_name}} – {{total}}';
 const DEFAULT_INVOICE_BODY = 'Hi {{customer_name}},\n\nPlease find your invoice {{invoice_number}} below. The total amount due is {{total}}{{due_date}}.\n\nThanks,\n{{your_name}}';
-const DEFAULT_SMS_BODY = 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Any questions, please contact {{contact_name}} on {{contact_number}}. Thanks — {{business_name}}';
+const DEFAULT_SMS_BODY = 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. — {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.';
 
 /**
  * Predicts how Twilio will bill an SMS given its text. Twilio splits long messages into
@@ -282,7 +282,8 @@ export default function EmailSettings() {
         <p className="text-sm text-gray-500 mb-4">
           Used when you click <strong>Send SMS</strong> on a customer. Because SMS is send-only,
           include your contact details (name, number, or email) so customers can reply through
-          another channel. Keep it under <strong>160 characters</strong> to fit a single SMS
+          another channel. The default includes <strong>Reply STOP to opt out</strong> and may use
+          two segments if long; shorten names to stay near <strong>160 characters</strong> for one
           segment.
         </p>
 

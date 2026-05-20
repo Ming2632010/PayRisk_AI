@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Plus,
   Mail,
@@ -79,6 +80,32 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
     return cleaned.length ? cleaned : null;
   }
 
+  const emptyFormData = (): FormData => ({
+    name: '',
+    email: '',
+    phone: '',
+    company: '',
+    street_address: '',
+    city: '',
+    state_province: '',
+    postal_code: '',
+    country: '',
+    amount_owed: '',
+    due_date: '',
+    total_orders: '',
+    average_order_value: '',
+    last_purchase_date: '',
+    is_high_risk_industry: false,
+    tags: [],
+  });
+
+  function resetCustomerFormFields() {
+    setFormData(emptyFormData());
+    setSmsConsentConfirmed(false);
+    setEditingCustomer(null);
+    setShowForm(false);
+  }
+
   const [formData, setFormData] = useState<FormData>({
     name: '',
     email: '',
@@ -98,6 +125,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
     tags: [],
   });
   const [editingCustomer, setEditingCustomer] = useState<CustomerNew | null>(null);
+  const [smsConsentConfirmed, setSmsConsentConfirmed] = useState(false);
   const [selectedCustomerForTransactions, setSelectedCustomerForTransactions] =
     useState<CustomerNew | null>(null);
   const [selectedCustomerForNotes, setSelectedCustomerForNotes] = useState<CustomerNew | null>(
@@ -246,10 +274,19 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
       return;
     }
 
+    const phone = normalizeNullableText(formData.phone);
+    if (phone && !smsConsentConfirmed) {
+      alert(
+        'Please confirm you have permission to send payment/account SMS to this phone number before saving.'
+      );
+      return;
+    }
+
     const customerDataForDb: Record<string, unknown> = {
       name: formData.name.trim(),
       email: formData.email.trim(),
-      phone: normalizeNullableText(formData.phone),
+      phone,
+      sms_consent: Boolean(phone && smsConsentConfirmed),
       company: normalizeNullableText(formData.company),
       street_address: normalizeNullableText(formData.street_address),
       city: normalizeNullableText(formData.city),
@@ -283,26 +320,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
       } else {
         addToPendingQueue({ type: 'create_customer', payload: customerDataForDb });
       }
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        company: '',
-        street_address: '',
-        city: '',
-        state_province: '',
-        postal_code: '',
-        country: '',
-        amount_owed: '',
-        due_date: '',
-        total_orders: '',
-        average_order_value: '',
-        last_purchase_date: '',
-        is_high_risk_industry: false,
-        tags: [],
-      });
-      setEditingCustomer(null);
-      setShowForm(false);
+      resetCustomerFormFields();
       setPendingCount(getPendingQueue().length);
       alert("Saved locally. Changes will sync when you're back online.");
       return;
@@ -315,26 +333,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
         await api.customers.create(customerDataForDb);
       }
 
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        company: '',
-        street_address: '',
-        city: '',
-        state_province: '',
-        postal_code: '',
-        country: '',
-        amount_owed: '',
-        due_date: '',
-        total_orders: '',
-        average_order_value: '',
-        last_purchase_date: '',
-        is_high_risk_industry: false,
-        tags: [],
-      });
-      setEditingCustomer(null);
-      setShowForm(false);
+      resetCustomerFormFields();
       loadCustomers();
     } catch (error) {
       console.error('Error saving customer:', error);
@@ -344,26 +343,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
             ? { type: 'update_customer', id: editingCustomer.id, payload: customerDataForDb }
             : { type: 'create_customer', payload: customerDataForDb }
         );
-        setFormData({
-          name: '',
-          email: '',
-          phone: '',
-          company: '',
-          street_address: '',
-          city: '',
-          state_province: '',
-          postal_code: '',
-          country: '',
-          amount_owed: '',
-          due_date: '',
-          total_orders: '',
-          average_order_value: '',
-          last_purchase_date: '',
-          is_high_risk_industry: false,
-          tags: [],
-        });
-        setEditingCustomer(null);
-        setShowForm(false);
+        resetCustomerFormFields();
         setPendingCount(getPendingQueue().length);
         setIsOffline(true);
         alert("No connection. Saved locally. Changes will sync when you're back online.");
@@ -401,6 +381,12 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
   async function handleSendSms(customer: CustomerNew) {
     if (!customer.phone?.trim()) {
       alert('This customer has no phone number. Add one in Edit Customer.');
+      return;
+    }
+    if (!customer.sms_consent_at) {
+      alert(
+        'SMS permission is not recorded for this customer. Edit the customer, check the SMS consent box, and save.'
+      );
       return;
     }
     setSendingAction('sms');
@@ -476,6 +462,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
       is_high_risk_industry: customer.is_high_risk_industry,
       tags: customer.tags || [],
     });
+    setSmsConsentConfirmed(Boolean(customer.sms_consent_at));
     setShowForm(true);
   };
 
@@ -575,7 +562,11 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
               <input
                 type="tel"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => {
+                  const phone = e.target.value;
+                  setFormData({ ...formData, phone });
+                  if (!phone.trim()) setSmsConsentConfirmed(false);
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="+61 412 345 678 or 0412 345 678"
               />
@@ -583,6 +574,30 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                 International format (with <code>+</code>) is best. Local numbers are accepted and
                 will be expanded using the country code from Business profile.
               </p>
+              {formData.phone.trim() && (
+                <div className="mt-3 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-3">
+                  <input
+                    id="customer-sms-consent"
+                    type="checkbox"
+                    checked={smsConsentConfirmed}
+                    onChange={(e) => setSmsConsentConfirmed(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="customer-sms-consent" className="text-sm text-gray-700 leading-snug">
+                    I confirm this contact has agreed to receive payment and account-related SMS from
+                    my business. See{' '}
+                    <Link
+                      to="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline font-medium"
+                    >
+                      Terms of Service
+                    </Link>{' '}
+                    (SMS program).
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="md:col-span-2 lg:col-span-3 mt-2">
@@ -1004,19 +1019,27 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                           <div className="relative group">
                             <button
                               onClick={() => handleSendSms(customer)}
-                              disabled={sendingAction !== null}
+                              disabled={
+                                sendingAction !== null ||
+                                !customer.phone?.trim() ||
+                                !customer.sms_consent_at
+                              }
                               className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
-                                (customer as { last_sms_sent_at?: string | null }).last_sms_sent_at
+                                customer.last_sms_sent_at
                                   ? 'text-green-600 bg-green-50 hover:bg-green-100'
                                   : 'text-indigo-600 hover:bg-indigo-50'
                               }`}
                             >
                               <MessageSquare className="w-4 h-4" />
                             </button>
-                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
-                              {(customer as { last_sms_sent_at?: string | null }).last_sms_sent_at
-                                ? `SMS sent ${formatDate((customer as { last_sms_sent_at?: string }).last_sms_sent_at!.slice(0, 10))}`
-                                : 'Send SMS'}
+                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20 max-w-[14rem] text-center">
+                              {!customer.phone?.trim()
+                                ? 'Add phone to send SMS'
+                                : !customer.sms_consent_at
+                                  ? 'Confirm SMS consent in Edit Customer'
+                                  : customer.last_sms_sent_at
+                                    ? `SMS sent ${formatDate(customer.last_sms_sent_at.slice(0, 10))}`
+                                    : 'Send SMS'}
                             </span>
                           </div>
 
