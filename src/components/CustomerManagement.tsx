@@ -275,12 +275,6 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
     }
 
     const phone = normalizeNullableText(formData.phone);
-    if (phone && !smsConsentConfirmed) {
-      alert(
-        'Please confirm you have permission to send payment/account SMS to this phone number before saving.'
-      );
-      return;
-    }
 
     const customerDataForDb: Record<string, unknown> = {
       name: formData.name.trim(),
@@ -585,7 +579,8 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                   />
                   <label htmlFor="customer-sms-consent" className="text-sm text-gray-700 leading-snug">
                     I confirm this contact has agreed to receive payment and account-related SMS from
-                    my business. See{' '}
+                    my business (required to use <strong className="font-medium">Send SMS</strong>, not
+                    to save the phone number). See{' '}
                     <Link
                       to="/terms"
                       target="_blank"
@@ -593,8 +588,8 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
                       className="text-blue-600 hover:underline font-medium"
                     >
                       Terms of Service
-                    </Link>{' '}
-                    (SMS program).
+                    </Link>
+                    .
                   </label>
                 </div>
               )}
@@ -734,7 +729,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
             <div className="md:col-span-2 lg:col-span-3 flex gap-3 justify-end">
               <button
                 type="button"
-                onClick={() => setShowForm(false)}
+                onClick={() => resetCustomerFormFields()}
                 className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel

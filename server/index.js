@@ -502,16 +502,18 @@ app.get('/api/customers', async (req, res) => {
   }
 });
 
+/** SMS consent timestamp: optional when saving a phone; required only when sending SMS. */
+function resolveSmsConsentAt(existingConsentAt, phone, smsConsentRequested) {
+  if (!phone) return null;
+  if (smsConsentRequested) return existingConsentAt ?? new Date();
+  return null;
+}
+
 app.post('/api/customers', async (req, res) => {
   try {
     const b = req.body;
     const phone = b.phone != null && String(b.phone).trim() ? String(b.phone).trim() : null;
-    if (phone && !b.sms_consent) {
-      return res.status(400).json({
-        error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
-      });
-    }
-    const smsConsentAt = phone && b.sms_consent ? new Date() : null;
+    const smsConsentAt = resolveSmsConsentAt(null, phone, Boolean(b.sms_consent));
     let row;
     try {
       row = await sql`
@@ -533,11 +535,6 @@ app.post('/api/customers', async (req, res) => {
       `;
     } catch (insertErr) {
       if (!insertErr.message || !/sms_consent_at|column/.test(insertErr.message)) throw insertErr;
-      if (phone && !b.sms_consent) {
-        return res.status(400).json({
-          error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
-        });
-      }
       row = await sql`
         INSERT INTO customers (
           user_id, name, email, phone, company, street_address, city, state_province,
@@ -567,12 +564,19 @@ app.put('/api/customers/:id', async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body;
     const phone = b.phone != null && String(b.phone).trim() ? String(b.phone).trim() : null;
-    if (phone && !b.sms_consent) {
-      return res.status(400).json({
-        error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
-      });
+    let existingConsentAt = null;
+    let existingRows;
+    try {
+      existingRows = await sql`
+        SELECT sms_consent_at FROM customers WHERE id = ${id} AND user_id = ${req.userId}
+      `;
+      existingConsentAt = existingRows[0]?.sms_consent_at ?? null;
+    } catch (selErr) {
+      if (!selErr.message || !/sms_consent_at|column/.test(selErr.message)) throw selErr;
+      existingRows = await sql`SELECT id FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
     }
-    const smsConsentAt = phone && b.sms_consent ? new Date() : null;
+    if (existingRows.length === 0) return res.status(404).json({ error: 'Not found' });
+    const smsConsentAt = resolveSmsConsentAt(existingConsentAt, phone, Boolean(b.sms_consent));
     let rows;
     try {
       rows = await sql`
@@ -592,11 +596,6 @@ app.put('/api/customers/:id', async (req, res) => {
       `;
     } catch (updateErr) {
       if (!updateErr.message || !/sms_consent_at|column/.test(updateErr.message)) throw updateErr;
-      if (phone && !b.sms_consent) {
-        return res.status(400).json({
-          error: 'Confirm SMS permission before saving a customer phone number used for text reminders.',
-        });
-      }
       rows = await sql`
         UPDATE customers SET
           name = ${b.name}, email = ${b.email}, phone = ${phone}, company = ${b.company ?? null},
