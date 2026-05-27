@@ -29,8 +29,25 @@ function isoDate(d) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Neon/Postgres DATE columns may arrive as Date objects — always normalize to YYYY-MM-DD. */
+function normalizeDbDate(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return isoDate(value);
+  }
+  const s = String(value).trim();
+  const isoMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return isoDate(d);
+}
+
 function addMonthsDate(dateStr, months = 1) {
-  const d = new Date(`${dateStr}T12:00:00.000Z`);
+  const normalized = normalizeDbDate(dateStr) || isoDate(new Date());
+  const d = new Date(`${normalized}T12:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return isoDate(new Date());
   d.setUTCMonth(d.getUTCMonth() + months);
   return isoDate(d);
 }
@@ -248,8 +265,8 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     // Paid subscribers: usage resets on invoice.paid (webhook), not on calendar boundaries.
     if (hasActivePaidSub && PAID_PLANS.includes(plan)) return;
 
-    let start = row.period_start ? String(row.period_start).slice(0, 10) : today;
-    let end = row.period_end ? String(row.period_end).slice(0, 10) : addMonthsDate(start, 1);
+    let start = normalizeDbDate(row.period_start) || today;
+    let end = normalizeDbDate(row.period_end) || addMonthsDate(start, 1);
 
     if (today < end) return;
 
@@ -288,8 +305,8 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     const status = row.subscription_status || 'none';
     const today = isoDate(new Date());
 
-    let periodEnd = row.period_end ? String(row.period_end).slice(0, 10) : null;
-    const periodStart = row.period_start ? String(row.period_start).slice(0, 10) : null;
+    let periodEnd = normalizeDbDate(row.period_end);
+    const periodStart = normalizeDbDate(row.period_start);
 
     // Legacy accounts: paid plan from one-time checkout before recurring billing (no Stripe sub id).
     if (PAID_PLANS.includes(plan) && !row.stripe_subscription_id && !periodEnd && periodStart) {
@@ -417,7 +434,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       console.warn('Renewal reminder skipped: Resend not configured');
       return;
     }
-    const periodEnd = unixToIsoDate(invoice.period_end) || user.period_end;
+    const periodEnd = unixToIsoDate(invoice.period_end) || normalizeDbDate(user.period_end);
     const amount = formatUsd(invoice.amount_due ?? 0);
     const plan = user.plan || 'basic';
     const planLabel = PLAN_LABELS[plan] || plan;

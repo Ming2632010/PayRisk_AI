@@ -69,7 +69,10 @@ const DOWNGRADE_NOTE: Record<Subscription['plan'], string> = {
 
 function formatPeriodDate(dateStr: string | null): string {
   if (!dateStr) return '—';
-  const d = new Date(`${dateStr}T12:00:00.000Z`);
+  const iso = dateStr.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+  if (!iso) return '—';
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
