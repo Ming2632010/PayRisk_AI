@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Mail, MessageSquare, Check, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react';
+import { Mail, MessageSquare, Check, ArrowUp, ArrowDown, ExternalLink, CreditCard } from 'lucide-react';
 import { api, type Subscription } from '../lib/api';
 
 /** URL of the website where users manage plans and billing (Opened in system browser for store compliance). */
@@ -62,15 +62,22 @@ const UPGRADE_REASONS: Record<Subscription['plan'], string[]> = {
 
 const DOWNGRADE_NOTE: Record<Subscription['plan'], string> = {
   starter: 'You are on the free plan.',
-  basic: 'Downgrading to Starter: you will lose SMS and be limited to 50 emails/month.',
+  basic: 'Downgrading to Starter cancels your subscription and limits you to 50 emails/month (no SMS).',
   professional: 'Downgrading to Basic: 500 emails and 50 SMS/month.',
   business: 'Downgrading to Professional: 2,000 emails and 200 SMS/month.',
 };
+
+function formatPeriodDate(dateStr: string | null): string {
+  if (!dateStr) return '—';
+  const d = new Date(`${dateStr}T12:00:00.000Z`);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
 
 export default function SubscriptionPlan() {
   const [sub, setSub] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [changing, setChanging] = useState<string | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -137,7 +144,8 @@ export default function SubscriptionPlan() {
     if (!sub || sub.plan === plan) return;
     const currentIndex = PLAN_ORDER.indexOf(sub.plan);
     const targetIndex = PLAN_ORDER.indexOf(plan);
-    const isUpgradeToPaid = targetIndex > currentIndex && plan !== 'starter';
+    const isUpgradeToPaid = (targetIndex > currentIndex && plan !== 'starter') ||
+      (targetIndex === currentIndex && plan !== 'starter' && !sub.has_active_subscription);
     if (isUpgradeToPaid) {
       if (isStandaloneApp()) {
         openBillingWebsite();
@@ -146,9 +154,13 @@ export default function SubscriptionPlan() {
       setChanging(plan);
       setError(null);
       try {
-        const { url } = await api.subscription.createCheckoutSession(plan);
-        if (url) {
-          window.location.href = url;
+        const result = await api.subscription.createCheckoutSession(plan);
+        if (result.updated && result.subscription) {
+          setSub(result.subscription);
+          return;
+        }
+        if (result.url) {
+          window.location.href = result.url;
           return;
         }
         setError('Checkout could not be started. Please try again or contact support.');
@@ -170,6 +182,12 @@ export default function SubscriptionPlan() {
       }
       return;
     }
+    if (plan === 'starter' && sub?.has_active_subscription) {
+      const ok = window.confirm(
+        'This will cancel your recurring subscription and move you to the free Starter plan. Continue?',
+      );
+      if (!ok) return;
+    }
     setChanging(plan);
     setError(null);
     try {
@@ -179,6 +197,24 @@ export default function SubscriptionPlan() {
       setError(e instanceof Error ? e.message : 'Failed to update plan');
     } finally {
       setChanging(null);
+    }
+  }
+
+  async function openBillingPortal() {
+    if (isStandaloneApp()) {
+      openBillingWebsite();
+      return;
+    }
+    setPortalLoading(true);
+    setError(null);
+    try {
+      const { url } = await api.subscription.createBillingPortalSession();
+      if (url) window.location.href = url;
+      else setError('Could not open billing portal.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to open billing portal');
+    } finally {
+      setPortalLoading(false);
     }
   }
 
@@ -195,7 +231,7 @@ export default function SubscriptionPlan() {
       <div>
         <h2 className="text-xl font-semibold text-gray-900">Your plan</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Manage subscription and usage. Plans and billing are managed on our website.
+          Recurring monthly billing on your subscription anniversary. Usage resets each time your plan renews.
         </p>
         <p className="text-sm text-slate-600 mt-2">
           <strong>Currency:</strong> prices on this page are in <strong>US dollars (USD)</strong>. Stripe
@@ -211,23 +247,80 @@ export default function SubscriptionPlan() {
             <p className="text-lg font-semibold text-gray-900">
               {PLAN_LABELS[sub.plan]} — {PLAN_PRICES[sub.plan]}/mo
             </p>
+            {sub.period_start && sub.period_end && (
+              <p className="text-xs text-gray-500 mt-1">
+                Billing period: {formatPeriodDate(sub.period_start)} – {formatPeriodDate(sub.period_end)}
+                {sub.next_billing_date && sub.has_active_subscription && (
+                  <> · Next charge: {formatPeriodDate(sub.next_billing_date)}</>
+                )}
+              </p>
+            )}
+            {sub.cancel_at_period_end && (
+              <p className="text-xs text-amber-700 mt-1">Subscription cancels at end of this billing period.</p>
+            )}
+            {!sub.has_active_subscription && sub.plan !== 'starter' && (
+              <p className="text-xs text-amber-700 mt-1">
+                No active subscription — restart billing below to keep {PLAN_LABELS[sub.plan]} after this period.
+              </p>
+            )}
           </div>
-          <div className="flex gap-6">
+          <div className="flex flex-col gap-3 min-w-[200px]">
             <div className="flex items-center gap-2">
-              <Mail className="w-4 h-4 text-gray-400" />
-              <span className="text-sm text-gray-600">
-                Emails: <strong>{sub.emails_sent}</strong> / {sub.emails_limit} this period
-              </span>
+              <Mail className="w-4 h-4 text-gray-400 shrink-0" />
+              <div className="flex-1">
+                <span className="text-sm text-gray-600">
+                  Email: <strong>{sub.emails_sent}</strong> / {sub.emails_limit}
+                </span>
+                <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${sub.emails_sent >= sub.emails_limit ? 'bg-red-500' : 'bg-blue-500'}`}
+                    style={{ width: `${Math.min(100, (sub.emails_sent / sub.emails_limit) * 100)}%` }}
+                  />
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-gray-400" />
-              <span className="text-sm text-gray-600">
-                SMS: <strong>{sub.sms_sent}</strong> / {sub.sms_limit} this period
-              </span>
+              <MessageSquare className="w-4 h-4 text-gray-400 shrink-0" />
+              <div className="flex-1">
+                <span className="text-sm text-gray-600">
+                  SMS: <strong>{sub.sms_sent}</strong> / {sub.sms_limit}
+                </span>
+                <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${sub.sms_limit > 0 && sub.sms_sent >= sub.sms_limit ? 'bg-red-500' : 'bg-indigo-500'}`}
+                    style={{
+                      width: `${sub.sms_limit > 0 ? Math.min(100, (sub.sms_sent / sub.sms_limit) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
+        {sub.has_active_subscription && !isStandaloneApp() && (
+          <button
+            type="button"
+            onClick={openBillingPortal}
+            disabled={portalLoading}
+            className="mt-4 inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
+          >
+            <CreditCard className="w-4 h-4" />
+            {portalLoading ? 'Opening…' : 'Manage payment method & invoices'}
+          </button>
+        )}
         {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+        {!sub.has_active_subscription && sub.plan !== 'starter' && !isStandaloneApp() && (
+          <button
+            type="button"
+            onClick={() => changePlan(sub.plan)}
+            disabled={changing !== null}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+          >
+            {changing === sub.plan
+              ? 'Redirecting…'
+              : `Restart ${PLAN_LABELS[sub.plan]} subscription (${PLAN_PRICES[sub.plan]}/mo)`}
+          </button>
+        )}
       </div>
 
       {/* Upgrade – on website: per-plan buttons to Stripe; in standalone app: single "Open website" button (store compliant) */}

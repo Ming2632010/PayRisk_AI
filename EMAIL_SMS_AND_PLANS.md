@@ -26,7 +26,7 @@ Run **`neon_migration_plans_usage.sql`** in the Neon SQL Editor (once) so the `u
 - `plan` (starter | basic | professional | business)
 - `period_start`, `emails_sent_current_period`, `sms_sent_current_period`
 
-New signups get `plan = 'starter'`. Usage resets at the start of each calendar month.
+New signups get `plan = 'starter'`. **Paid plans** use **Stripe recurring subscriptions** (monthly on the subscription anniversary). Email/SMS usage resets when each invoice is paid (`invoice.paid` webhook), not on calendar month boundaries.
 
 ## Plan limits (Option A)
 
@@ -37,7 +37,15 @@ New signups get `plan = 'starter'`. Usage resets at the start of each calendar m
 | Professional | $49 | 2,000 | 200 |
 | Business | $99 | 6,000 | 600 |
 
-Users can change plan from the **Plan** page (upgrade/downgrade). Billing is not integrated; plan is stored in the DB only. You can add Stripe (or similar) later.
+Users can change plan from the **Plan** page. Upgrades open **Stripe Checkout** (subscription). Downgrades and cancellation update Stripe and the database. A **renewal reminder email** is sent before each charge (`invoice.upcoming` webhook). Manage card/cancel via **Manage payment method** (Stripe Customer Portal).
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `STRIPE_SECRET_KEY` | For paid plans | Stripe secret key |
+| `STRIPE_WEBHOOK_SECRET` | For paid plans | Webhook signing secret |
+| `FRONTEND_URL` | For billing | e.g. `https://payriskai.com` (checkout return URLs) |
+
+Run **`neon_migration_stripe_subscription.sql`** in Neon for subscription columns.
 
 ## In-app behaviour
 

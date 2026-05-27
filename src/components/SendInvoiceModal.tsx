@@ -3,6 +3,7 @@ import { X, Eye, Send, ArrowLeft, Receipt, History } from 'lucide-react';
 import { api, type InvoiceSummary } from '../lib/api';
 import type { Transaction } from '../lib/database.types';
 import { DEFAULT_TAX_SETTINGS, splitLine, taxActive, type TaxSettings } from '../utils/tax';
+import { alertPlanLimit, isPlanLimitError } from '../utils/planLimits';
 
 type CustomerLike = {
   id: number;
@@ -14,6 +15,7 @@ interface SendInvoiceModalProps {
   customer: CustomerLike;
   onClose: () => void;
   onSent: () => void;
+  onOpenPlanPage?: () => void;
 }
 
 type Stage = 'select' | 'preview';
@@ -36,7 +38,7 @@ function formatDateTime(value: string | null | undefined): string {
   return d.toLocaleString();
 }
 
-export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvoiceModalProps) {
+export default function SendInvoiceModal({ customer, onClose, onSent, onOpenPlanPage }: SendInvoiceModalProps) {
   const [tab, setTab] = useState<Tab>('new');
   const [stage, setStage] = useState<Stage>('select');
   const [loading, setLoading] = useState(true);
@@ -174,7 +176,8 @@ export default function SendInvoiceModal({ customer, onClose, onSent }: SendInvo
       });
       onSent();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to send invoice');
+      if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
+      else setError(e instanceof Error ? e.message : 'Failed to send invoice');
     } finally {
       setSending(false);
     }

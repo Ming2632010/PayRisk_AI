@@ -36,6 +36,7 @@ import {
   isLikelyNetworkError,
   type ProcessQueueApi,
 } from '../lib/offline';
+import { alertPlanLimit, isPlanLimitError } from '../utils/planLimits';
 
 interface FormData {
   name: string;
@@ -59,9 +60,10 @@ interface FormData {
 interface CustomerManagementProps {
   userId: string | null;
   onDueTodayRefresh?: () => void;
+  onOpenPlanPage?: () => void;
 }
 
-export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManagementProps) {
+export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }: CustomerManagementProps) {
   const [customers, setCustomers] = useState<CustomerNew[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -362,7 +364,8 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
       alert(`Payment reminder sent by email to ${customer.name}.`);
       onDueTodayRefresh?.();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to send reminder');
+      if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
+      else alert(e instanceof Error ? e.message : 'Failed to send reminder');
     } finally {
       setSendingAction(null);
     }
@@ -374,7 +377,8 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
       await api.customers.sendOffer(customer.id);
       alert(`Special offer sent by email to ${customer.name}.`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to send offer');
+      if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
+      else alert(e instanceof Error ? e.message : 'Failed to send offer');
     } finally {
       setSendingAction(null);
     }
@@ -398,7 +402,8 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
       loadCustomers();
       onDueTodayRefresh?.();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to send SMS');
+      if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
+      else alert(e instanceof Error ? e.message : 'Failed to send SMS');
     } finally {
       setSendingAction(null);
     }
@@ -1119,6 +1124,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh }: CustomerManage
           }}
           onClose={() => setInvoiceModalCustomer(null)}
           onSent={handleInvoiceSent}
+          onOpenPlanPage={onOpenPlanPage}
         />
       )}
     </div>

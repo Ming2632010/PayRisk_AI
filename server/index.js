@@ -8,6 +8,7 @@ import { randomUUID, createHash, randomBytes } from 'crypto';
 import { Resend } from 'resend';
 import twilio from 'twilio';
 import Stripe from 'stripe';
+import { createStripeBilling } from './stripeBilling.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -17,6 +18,8 @@ const stripeSecret = process.env.STRIPE_SECRET_KEY;
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 const stripe = stripeSecret ? new Stripe(stripeSecret) : null;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+/** Initialized after Resend helpers; used by Stripe webhook and subscription routes. */
+let billing = null;
 
 if (!process.env.NEON_DATABASE_URL) {
   console.error('Missing NEON_DATABASE_URL');
@@ -42,22 +45,11 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
   } catch (e) {
     return res.status(400).send(`Webhook signature verification failed: ${e.message}`);
   }
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const userId = session.metadata?.userId;
-    const plan = session.metadata?.plan;
-    if (userId && plan && ['basic', 'professional', 'business'].includes(plan)) {
-      try {
-        await sql`UPDATE users SET plan = ${plan}, updated_at = now() WHERE id = ${userId}`;
-      } catch (err) {
-        console.error('Webhook: failed to update plan', err);
-      }
-    } else {
-      console.warn(
-        'Stripe webhook: checkout.session.completed ignored — missing or invalid metadata (userId / plan).',
-        { userId, plan },
-      );
-    }
+  try {
+    if (billing) await billing.handleStripeWebhookEvent(event);
+    else console.warn('Stripe webhook received before billing module initialized');
+  } catch (err) {
+    console.error('Stripe webhook handler error:', err);
   }
   res.sendStatus(200);
 });
@@ -91,14 +83,22 @@ app.post('/auth/signup', async (req, res) => {
     if (existing.length > 0) return res.status(400).json({ error: 'An account with this email already exists' });
     const id = randomUUID();
     const password_hash = await bcrypt.hash(password, 10);
-    const periodStart = new Date();
-    periodStart.setDate(1);
-    periodStart.setHours(0, 0, 0, 0);
-    const periodStartStr = periodStart.toISOString().slice(0, 10);
-    await sql`
-      INSERT INTO users (id, email, password_hash, plan, period_start, emails_sent_current_period, sms_sent_current_period)
-      VALUES (${id}, ${normalizedEmail}, ${password_hash}, 'starter', ${periodStartStr}, 0, 0)
-    `;
+    const today = new Date().toISOString().slice(0, 10);
+    const periodEnd = new Date();
+    periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
+    const periodEndStr = periodEnd.toISOString().slice(0, 10);
+    try {
+      await sql`
+        INSERT INTO users (id, email, password_hash, plan, period_start, period_end, emails_sent_current_period, sms_sent_current_period, subscription_status)
+        VALUES (${id}, ${normalizedEmail}, ${password_hash}, 'starter', ${today}, ${periodEndStr}, 0, 0, 'none')
+      `;
+    } catch (insertErr) {
+      if (!insertErr.message || !/period_end|subscription_status|column/.test(insertErr.message)) throw insertErr;
+      await sql`
+        INSERT INTO users (id, email, password_hash, plan, period_start, emails_sent_current_period, sms_sent_current_period)
+        VALUES (${id}, ${normalizedEmail}, ${password_hash}, 'starter', ${today}, 0, 0)
+      `;
+    }
     const token = jwt.sign({ sub: id, email: normalizedEmail }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user: { id, email: normalizedEmail } });
   } catch (e) {
@@ -224,86 +224,6 @@ app.get('/auth/me', authMiddleware, (req, res) => {
 
 app.use('/api', authMiddleware);
 
-// --- Plan limits (Option A: Starter 50 email only; Basic/Pro/Business email + SMS) ---
-const PLAN_LIMITS = {
-  starter: { emails: 50, sms: 0 },
-  basic: { emails: 500, sms: 50 },
-  professional: { emails: 2000, sms: 200 },
-  business: { emails: 6000, sms: 600 },
-};
-
-async function getSubscription(userId) {
-  const rows = await sql`
-    SELECT plan, period_start, emails_sent_current_period, sms_sent_current_period
-    FROM users WHERE id = ${userId}
-  `;
-  if (rows.length === 0) return null;
-  const r = rows[0];
-  const plan = r.plan || 'starter';
-  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
-  return {
-    plan,
-    period_start: r.period_start,
-    emails_sent: Number(r.emails_sent_current_period ?? 0),
-    sms_sent: Number(r.sms_sent_current_period ?? 0),
-    emails_limit: limits.emails,
-    sms_limit: limits.sms,
-  };
-}
-
-function startOfMonth(date = new Date()) {
-  const d = new Date(date);
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().slice(0, 10);
-}
-
-async function ensurePeriod(userId) {
-  const now = startOfMonth();
-  const rows = await sql`
-    SELECT period_start FROM users WHERE id = ${userId}
-  `;
-  if (rows.length === 0) return;
-  const periodStart = rows[0].period_start ? String(rows[0].period_start).slice(0, 10) : null;
-  if (periodStart !== now) {
-    await sql`
-      UPDATE users SET period_start = ${now}, emails_sent_current_period = 0, sms_sent_current_period = 0
-      WHERE id = ${userId}
-    `;
-  }
-}
-
-async function canSendEmail(userId) {
-  await ensurePeriod(userId);
-  const sub = await getSubscription(userId);
-  if (!sub) return { ok: false, error: 'User not found' };
-  if (sub.emails_sent >= sub.emails_limit) return { ok: false, error: 'Email limit reached for this period. Upgrade your plan.' };
-  return { ok: true };
-}
-
-async function canSendSms(userId) {
-  await ensurePeriod(userId);
-  const sub = await getSubscription(userId);
-  if (!sub) return { ok: false, error: 'User not found' };
-  if (sub.sms_limit === 0) return { ok: false, error: 'SMS not included in your plan. Upgrade to Basic or higher.' };
-  if (sub.sms_sent >= sub.sms_limit) return { ok: false, error: 'SMS limit reached for this period. Upgrade your plan.' };
-  return { ok: true };
-}
-
-async function incrementEmail(userId) {
-  await sql`
-    UPDATE users SET emails_sent_current_period = COALESCE(emails_sent_current_period, 0) + 1
-    WHERE id = ${userId}
-  `;
-}
-
-async function incrementSms(userId) {
-  await sql`
-    UPDATE users SET sms_sent_current_period = COALESCE(sms_sent_current_period, 0) + 1
-    WHERE id = ${userId}
-  `;
-}
-
 const resendApi = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const fromEmail = process.env.FROM_EMAIL || 'onboarding@resend.dev';
 const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
@@ -359,91 +279,74 @@ function formatResendFrom(displayName, bareFrom) {
   return addr;
 }
 
+billing = createStripeBilling({
+  sql,
+  stripe,
+  resendApi,
+  fromEmail,
+  formatResendFrom,
+  frontendUrl: FRONTEND_URL,
+});
+
+function planLimitResponse(res, check) {
+  if (check.ok) return false;
+  return res.status(403).json({ error: check.error, code: check.code || 'PLAN_LIMIT' });
+}
+
 // --- Subscription & due today ---
 app.get('/api/subscription', async (req, res) => {
   try {
-    await ensurePeriod(req.userId);
-    const sub = await getSubscription(req.userId);
+    const sub = await billing.getSubscription(req.userId);
     if (!sub) return res.status(404).json({ error: 'Not found' });
     res.json(sub);
   } catch (e) {
     console.error(e);
+    if (e.message && /stripe_|subscription_|period_end|column/.test(e.message)) {
+      return res.status(503).json({
+        error: 'Database migration required. Run neon_migration_stripe_subscription.sql in Neon.',
+      });
+    }
     res.status(500).json({ error: e.message });
   }
 });
-
-const PLAN_ORDER = ['starter', 'basic', 'professional', 'business'];
-const PLAN_PRICE_CENTS = { starter: 0, basic: 1900, professional: 4900, business: 9900 };
-const PLAN_LABELS = { starter: 'Starter', basic: 'Basic', professional: 'Professional', business: 'Business' };
 
 app.post('/api/subscription/checkout-session', async (req, res) => {
   try {
-    if (!stripe) return res.status(503).json({ error: 'Billing is not configured. Set STRIPE_SECRET_KEY in server environment.' });
     const plan = req.body?.plan;
-    if (!plan || !PLAN_ORDER.includes(plan)) return res.status(400).json({ error: 'Invalid plan.' });
-    if (PLAN_PRICE_CENTS[plan] === 0) return res.status(400).json({ error: 'Starter is free. Use the plan switch for downgrades.' });
-    const sub = await getSubscription(req.userId);
-    if (!sub) return res.status(404).json({ error: 'Not found' });
-    const currentIndex = PLAN_ORDER.indexOf(sub.plan);
-    const targetIndex = PLAN_ORDER.indexOf(plan);
-    if (targetIndex <= currentIndex) return res.status(400).json({ error: 'Use the plan switch below for downgrades or the same plan.' });
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          unit_amount: PLAN_PRICE_CENTS[plan],
-          product_data: { name: `PayRisk AI – ${PLAN_LABELS[plan]} (1 month)` },
-        },
-        quantity: 1,
-      }],
-      metadata: { userId: req.userId, plan },
-      success_url: `${FRONTEND_URL}?page=plan&success=1&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_URL}?page=plan&cancel=1`,
-    });
-    res.json({ url: session.url });
+    if (!plan || !billing.PLAN_ORDER.includes(plan)) return res.status(400).json({ error: 'Invalid plan.' });
+    if (billing.PLAN_PRICE_CENTS[plan] === 0) {
+      return res.status(400).json({ error: 'Starter is free. Use the plan switch for downgrades.' });
+    }
+    const result = await billing.createCheckoutSession(req.userId, req.userEmail, plan);
+    if (result.updated) {
+      const sub = await billing.getSubscription(req.userId);
+      return res.json({ url: null, updated: true, subscription: sub });
+    }
+    res.json({ url: result.url, updated: false });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: e.message });
+    res.status(e.message?.includes('not configured') ? 503 : 500).json({ error: e.message });
   }
 });
 
-/**
- * After Stripe Checkout redirects back with ?session_id=…, the client calls this so the plan
- * updates immediately. The Stripe webhook also updates the row when it fires — if the webhook
- * URL or signing secret is misconfigured, this path still works.
- */
 app.post('/api/subscription/confirm-checkout', async (req, res) => {
   try {
-    if (!stripe) return res.status(503).json({ error: 'Billing is not configured. Set STRIPE_SECRET_KEY in server environment.' });
     const sessionId = req.body?.sessionId;
     if (!sessionId || typeof sessionId !== 'string') {
       return res.status(400).json({ error: 'sessionId is required.' });
     }
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    if (session.mode !== 'payment') {
-      return res.status(400).json({ error: 'Invalid checkout session type.' });
-    }
-    if (session.payment_status !== 'paid') {
-      return res.status(400).json({
-        error: 'Payment is not complete yet. Wait a few seconds and try refreshing the Plan page.',
-      });
-    }
-    const userId = session.metadata?.userId;
-    const plan = session.metadata?.plan;
-    if (!plan || !['basic', 'professional', 'business'].includes(plan)) {
-      return res.status(400).json({ error: 'Checkout session is missing a valid plan.' });
-    }
-    if (!userId || userId !== req.userId) {
-      return res.status(403).json({
-        error: 'This payment belongs to a different account. Sign in with the same email you used for checkout.',
-      });
-    }
-    await sql`UPDATE users SET plan = ${plan}, updated_at = now() WHERE id = ${req.userId}`;
-    await ensurePeriod(req.userId);
-    const sub = await getSubscription(req.userId);
+    const sub = await billing.confirmCheckout(req.userId, sessionId);
     res.json(sub);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/subscription/billing-portal', async (req, res) => {
+  try {
+    const url = await billing.createBillingPortalSession(req.userId);
+    res.json({ url });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -453,17 +356,10 @@ app.post('/api/subscription/confirm-checkout', async (req, res) => {
 app.patch('/api/subscription', async (req, res) => {
   try {
     const plan = req.body?.plan;
-    if (!plan || !['starter', 'basic', 'professional', 'business'].includes(plan)) {
+    if (!plan || !billing.PLAN_ORDER.includes(plan)) {
       return res.status(400).json({ error: 'Invalid plan. Use starter, basic, professional, or business.' });
     }
-    const rows = await sql`
-      UPDATE users SET plan = ${plan}, updated_at = now()
-      WHERE id = ${req.userId}
-      RETURNING plan
-    `;
-    if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    await ensurePeriod(req.userId);
-    const sub = await getSubscription(req.userId);
+    const sub = await billing.updatePlan(req.userId, plan);
     res.json(sub);
   } catch (e) {
     console.error(e);
@@ -729,8 +625,8 @@ app.put('/api/customers/:id/notes', async (req, res) => {
 app.post('/api/customers/:id/send-reminder', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await canSendEmail(req.userId);
-    if (!check.ok) return res.status(403).json({ error: check.error });
+    const check = await billing.canSendEmail(req.userId);
+    if (planLimitResponse(res, check)) return;
     const rows = await sql`SELECT id, name, email, amount_owed, due_date FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
@@ -767,7 +663,7 @@ app.post('/api/customers/:id/send-reminder', async (req, res) => {
       html,
     });
     if (error) return res.status(500).json({ error: error.message || 'Failed to send email' });
-    await incrementEmail(req.userId);
+    await billing.incrementEmail(req.userId);
     res.json({ sent: true, channel: 'email' });
   } catch (e) {
     console.error(e);
@@ -778,8 +674,8 @@ app.post('/api/customers/:id/send-reminder', async (req, res) => {
 app.post('/api/customers/:id/send-offer', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await canSendEmail(req.userId);
-    if (!check.ok) return res.status(403).json({ error: check.error });
+    const check = await billing.canSendEmail(req.userId);
+    if (planLimitResponse(res, check)) return;
     const rows = await sql`SELECT id, name, email FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
@@ -812,7 +708,7 @@ app.post('/api/customers/:id/send-offer', async (req, res) => {
       html,
     });
     if (error) return res.status(500).json({ error: error.message || 'Failed to send email' });
-    await incrementEmail(req.userId);
+    await billing.incrementEmail(req.userId);
     res.json({ sent: true, channel: 'email' });
   } catch (e) {
     console.error(e);
@@ -823,8 +719,8 @@ app.post('/api/customers/:id/send-offer', async (req, res) => {
 app.post('/api/customers/:id/send-sms', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await canSendSms(req.userId);
-    if (!check.ok) return res.status(403).json({ error: check.error });
+    const check = await billing.canSendSms(req.userId);
+    if (planLimitResponse(res, check)) return;
     let rows;
     try {
       rows = await sql`SELECT id, name, phone, amount_owed, due_date, sms_consent_at FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
@@ -888,7 +784,7 @@ app.post('/api/customers/:id/send-sms', async (req, res) => {
     } catch (stampErr) {
       if (!stampErr.message || !/last_sms_sent_at|column/.test(stampErr.message)) throw stampErr;
     }
-    await incrementSms(req.userId);
+    await billing.incrementSms(req.userId);
     res.json({ sent: true, channel: 'sms', to, preview: body });
   } catch (e) {
     console.error(e);
@@ -1433,8 +1329,8 @@ app.post('/api/customers/:id/invoice-preview', async (req, res) => {
 app.post('/api/customers/:id/send-invoice', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await canSendEmail(req.userId);
-    if (!check.ok) return res.status(403).json({ error: check.error });
+    const check = await billing.canSendEmail(req.userId);
+    if (planLimitResponse(res, check)) return;
     const customer = await loadCustomerForInvoice(id, req.userId);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
     const ids = parseTransactionIds(req.body?.transaction_ids);
@@ -1501,7 +1397,7 @@ app.post('/api/customers/:id/send-invoice', async (req, res) => {
       UPDATE customers SET last_invoice_sent_at = now(), updated_at = now()
       WHERE id = ${id} AND user_id = ${req.userId}
     `;
-    await incrementEmail(req.userId);
+    await billing.incrementEmail(req.userId);
     res.json({ sent: true, channel: 'email', invoice_id: savedId, invoice_number: invoiceNumber, total });
   } catch (e) {
     console.error(e);

@@ -9,6 +9,11 @@ import {
   formatCurrency,
   formatDate,
 } from '../utils/scoring';
+import { alertPlanLimit, isPlanLimitError } from '../utils/planLimits';
+
+interface DashboardProps {
+  onOpenPlanPage?: () => void;
+}
 
 interface DashboardMetrics {
   totalOutstanding: number;
@@ -19,7 +24,7 @@ interface DashboardMetrics {
   notContactedCount: number;
 }
 
-export function Dashboard() {
+export function Dashboard({ onOpenPlanPage }: DashboardProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     totalOutstanding: 0,
@@ -122,7 +127,8 @@ export function Dashboard() {
       await api.customers.sendReminder(customer.id);
       alert(`Payment reminder sent by email to ${customer.name}.`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to send reminder');
+      if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
+      else alert(e instanceof Error ? e.message : 'Failed to send reminder');
     } finally {
       setSendingAction(null);
     }
@@ -134,7 +140,8 @@ export function Dashboard() {
       await api.customers.sendOffer(customer.id);
       alert(`Special offer sent by email to ${customer.name}.`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to send offer');
+      if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
+      else alert(e instanceof Error ? e.message : 'Failed to send offer');
     } finally {
       setSendingAction(null);
     }

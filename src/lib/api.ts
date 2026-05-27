@@ -26,17 +26,26 @@ async function request<T>(path: string, options: JsonRequestInit = {}): Promise<
 
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText || 'Request failed');
+  if (!res.ok) {
+    const err = new Error(data.error || res.statusText || 'Request failed') as Error & { code?: string };
+    if (typeof data.code === 'string') err.code = data.code;
+    throw err;
+  }
   return data as T;
 }
 
 export type Subscription = {
   plan: 'starter' | 'basic' | 'professional' | 'business';
   period_start: string | null;
+  period_end: string | null;
   emails_sent: number;
   sms_sent: number;
   emails_limit: number;
   sms_limit: number;
+  subscription_status: string;
+  has_active_subscription: boolean;
+  cancel_at_period_end: boolean;
+  next_billing_date: string | null;
 };
 
 export type DueTodayResponse = {
@@ -122,16 +131,21 @@ export const api = {
     update: (plan: string) =>
       request<Subscription>('/api/subscription', { method: 'PATCH', body: { plan } }),
     createCheckoutSession: (plan: string) =>
-      request<{ url: string }>('/api/subscription/checkout-session', {
-        method: 'POST',
-        body: { plan },
-      }),
+      request<{ url: string | null; updated?: boolean; subscription?: Subscription }>(
+        '/api/subscription/checkout-session',
+        {
+          method: 'POST',
+          body: { plan },
+        },
+      ),
     /** Call after returning from Stripe with ?page=plan&success=1&session_id=… */
     confirmCheckout: (sessionId: string) =>
       request<Subscription>('/api/subscription/confirm-checkout', {
         method: 'POST',
         body: { sessionId },
       }),
+    createBillingPortalSession: () =>
+      request<{ url: string }>('/api/subscription/billing-portal', { method: 'POST' }),
   },
   invoiceTemplate: {
     get: () => request<InvoiceTemplate>('/api/invoice-template'),

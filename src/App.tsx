@@ -258,8 +258,14 @@ function App() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {currentPage === 'dashboard' && <Dashboard />}
-        {currentPage === 'customers' && <CustomerManagement userId={user?.id ?? null} onDueTodayRefresh={() => api.customers.dueToday().then(setDueToday).catch(() => setDueToday(null))} />}
+        {currentPage === 'dashboard' && <Dashboard onOpenPlanPage={() => navigateTo('plan')} />}
+        {currentPage === 'customers' && (
+          <CustomerManagement
+            userId={user?.id ?? null}
+            onDueTodayRefresh={() => api.customers.dueToday().then(setDueToday).catch(() => setDueToday(null))}
+            onOpenPlanPage={() => navigateTo('plan')}
+          />
+        )}
         {currentPage === 'email-settings' && <EmailSettings />}
         {currentPage === 'invoice' && <InvoiceTemplateSettings />}
         {currentPage === 'custom-rules' && <CustomRules />}
