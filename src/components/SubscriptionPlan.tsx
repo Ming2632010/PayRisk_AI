@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Mail, MessageSquare, Check, ArrowUp, ArrowDown, ExternalLink, CreditCard } from 'lucide-react';
+import { Mail, MessageSquare, Check, ArrowUp, ArrowDown, ExternalLink, CreditCard, CalendarDays } from 'lucide-react';
 import { api, type Subscription } from '../lib/api';
 
 /** URL of the website where users manage plans and billing (Opened in system browser for store compliance). */
@@ -250,12 +250,28 @@ export default function SubscriptionPlan() {
             <p className="text-lg font-semibold text-gray-900">
               {PLAN_LABELS[sub.plan]} — {PLAN_PRICES[sub.plan]}/mo
             </p>
-            {sub.period_start && sub.period_end && (
-              <p className="text-xs text-gray-500 mt-1">
-                Billing period: {formatPeriodDate(sub.period_start)} – {formatPeriodDate(sub.period_end)}
-                {sub.next_billing_date && sub.has_active_subscription && (
-                  <> · Next charge: {formatPeriodDate(sub.next_billing_date)}</>
-                )}
+            {(sub.period_start || sub.period_end) && (
+              <p className="text-sm text-gray-600 mt-2 flex items-start gap-2">
+                <CalendarDays className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-medium text-gray-700">Current billing period:</span>{' '}
+                  {sub.period_start && sub.period_end ? (
+                    <>
+                      {formatPeriodDate(sub.period_start)} – {formatPeriodDate(sub.period_end)}
+                    </>
+                  ) : sub.period_end ? (
+                    <>through {formatPeriodDate(sub.period_end)}</>
+                  ) : (
+                    <>from {formatPeriodDate(sub.period_start)}</>
+                  )}
+                  {sub.next_billing_date && sub.has_active_subscription && (
+                    <>
+                      {' '}
+                      · <span className="font-medium text-gray-700">Next charge:</span>{' '}
+                      {formatPeriodDate(sub.next_billing_date)}
+                    </>
+                  )}
+                </span>
               </p>
             )}
             {sub.cancel_at_period_end && (

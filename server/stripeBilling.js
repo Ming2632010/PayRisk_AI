@@ -58,6 +58,15 @@ function unixToIsoDate(unixSeconds) {
   return isoDate(new Date(unixSeconds * 1000));
 }
 
+/** Stripe Basil (2025-03-31+) moved period fields from Subscription to SubscriptionItem. */
+function subscriptionPeriodBounds(sub) {
+  const item = sub?.items?.data?.[0];
+  return {
+    start: sub?.current_period_start ?? item?.current_period_start ?? null,
+    end: sub?.current_period_end ?? item?.current_period_end ?? null,
+  };
+}
+
 function formatUsd(cents) {
   return `$${(cents / 100).toFixed(2)} USD`;
 }
@@ -194,8 +203,9 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       console.error('Stripe sync: could not resolve plan for subscription', sub.id);
       return;
     }
-    const periodStart = unixToIsoDate(sub.current_period_start);
-    const periodEnd = unixToIsoDate(sub.current_period_end);
+    const { start, end } = subscriptionPeriodBounds(sub);
+    const periodStart = unixToIsoDate(start);
+    const periodEnd = unixToIsoDate(end);
     const status = sub.status || 'none';
     const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
 
@@ -283,7 +293,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
           return true;
         }
         if (ACTIVE_SUB_STATUSES.has(sub.status)) {
-          const periodEnd = unixToIsoDate(sub.current_period_end);
+          const periodEnd = unixToIsoDate(subscriptionPeriodBounds(sub).end);
           if (periodEnd && today > periodEnd) {
             await downgradeToStarter(userId);
             return true;
@@ -361,8 +371,9 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     let row = await getUserBillingRow(userId);
     if (!row) return null;
 
-    const downgraded = await syncAndExpireSubscription(userId, row);
-    if (downgraded) row = await getUserBillingRow(userId);
+    await syncAndExpireSubscription(userId, row);
+    row = await getUserBillingRow(userId);
+    if (!row) return null;
 
     if (row && (row.plan || 'starter') === 'starter') {
       await rollStarterPeriodIfNeeded(userId, row);
@@ -553,8 +564,9 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
         return;
       }
 
-      const periodStart = unixToIsoDate(sub.current_period_start);
-      const periodEnd = unixToIsoDate(sub.current_period_end);
+      const { start, end } = subscriptionPeriodBounds(sub);
+      const periodStart = unixToIsoDate(start);
+      const periodEnd = unixToIsoDate(end);
       const plan = await resolvePlanFromSubscription(sub);
       if (!plan) return;
 
