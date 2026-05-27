@@ -263,7 +263,12 @@ export default function SubscriptionPlan() {
             )}
             {!sub.has_active_subscription && sub.plan !== 'starter' && (
               <p className="text-xs text-amber-700 mt-1">
-                No active subscription — restart billing below to keep {PLAN_LABELS[sub.plan]} after this period.
+                No active subscription — renew below or your account will move to Starter when the billing period ends.
+              </p>
+            )}
+            {sub.plan === 'starter' && (
+              <p className="text-xs text-gray-500 mt-1">
+                Starter includes {PLAN_EMAILS.starter} emails/month (no SMS). Upgrade for more; paid plans require an active Stripe subscription.
               </p>
             )}
           </div>

@@ -14,6 +14,7 @@ export const PLAN_LABELS = { starter: 'Starter', basic: 'Basic', professional: '
 
 const PAID_PLANS = ['basic', 'professional', 'business'];
 const ACTIVE_SUB_STATUSES = new Set(['active', 'trialing']);
+const INACTIVE_SUB_STATUSES = new Set(['canceled', 'unpaid', 'incomplete_expired', 'past_due', 'incomplete']);
 
 function lookupKeyForPlan(plan) {
   return `payrisk_${plan}_monthly`;
@@ -118,7 +119,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
         SELECT id, email, plan, period_start, period_end,
                emails_sent_current_period, sms_sent_current_period,
                stripe_customer_id, stripe_subscription_id, subscription_status,
-               subscription_renewal_reminder_sent_at
+               subscription_renewal_reminder_sent_at, updated_at
         FROM users WHERE id = ${userId}
       `;
       return rows[0] ?? null;
@@ -138,6 +139,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
         stripe_subscription_id: null,
         subscription_status: 'none',
         subscription_renewal_reminder_sent_at: null,
+        updated_at: null,
       };
     }
   }
@@ -252,19 +254,79 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     }
   }
 
-  async function ensurePeriod(userId) {
-    const row = await getUserBillingRow(userId);
-    if (!row) return;
+  async function resolveLegacyPeriodEnd(row) {
+    let periodEnd = normalizeDbDate(row.period_end);
+    const periodStart = normalizeDbDate(row.period_start);
+    if (periodEnd) return periodEnd;
+    if (!PAID_PLANS.includes(row.plan || 'starter') || row.stripe_subscription_id) return null;
+    const anchor = periodStart || normalizeDbDate(row.updated_at);
+    if (!anchor) return null;
+    periodEnd = addMonthsDate(anchor, 1);
+    try {
+      await sql`UPDATE users SET period_end = ${periodEnd}, updated_at = now() WHERE id = ${row.id}`;
+    } catch (_) { /* optional column */ }
+    return periodEnd;
+  }
 
+  /** Sync Stripe subscription state; downgrade to Starter when unpaid or billing period ended. */
+  async function syncAndExpireSubscription(userId, row) {
     const plan = row.plan || 'starter';
+    if (!PAID_PLANS.includes(plan)) return false;
+
     const today = isoDate(new Date());
-    const hasActivePaidSub =
-      row.stripe_subscription_id &&
-      ACTIVE_SUB_STATUSES.has(String(row.subscription_status || ''));
 
-    // Paid subscribers: usage resets on invoice.paid (webhook), not on calendar boundaries.
-    if (hasActivePaidSub && PAID_PLANS.includes(plan)) return;
+    if (stripe && row.stripe_subscription_id) {
+      try {
+        const sub = await stripe.subscriptions.retrieve(row.stripe_subscription_id);
+        if (INACTIVE_SUB_STATUSES.has(sub.status)) {
+          await downgradeToStarter(userId);
+          return true;
+        }
+        if (ACTIVE_SUB_STATUSES.has(sub.status)) {
+          const periodEnd = unixToIsoDate(sub.current_period_end);
+          if (periodEnd && today > periodEnd) {
+            await downgradeToStarter(userId);
+            return true;
+          }
+          await syncUserFromSubscription(userId, sub, { resetUsage: false });
+          return false;
+        }
+      } catch (e) {
+        if (e?.statusCode === 404 || e?.code === 'resource_missing') {
+          await downgradeToStarter(userId);
+          return true;
+        }
+      }
+    }
 
+    if (stripe && row.stripe_customer_id && !row.stripe_subscription_id) {
+      try {
+        const listed = await stripe.subscriptions.list({
+          customer: row.stripe_customer_id,
+          status: 'all',
+          limit: 20,
+        });
+        const active = listed.data.find((s) => ACTIVE_SUB_STATUSES.has(s.status));
+        if (active) {
+          await syncUserFromSubscription(userId, active, { resetUsage: false });
+          return false;
+        }
+      } catch (e) {
+        console.error('Stripe subscription list failed:', e.message);
+      }
+    }
+
+    const periodEnd = await resolveLegacyPeriodEnd(row);
+    if (periodEnd && today > periodEnd) {
+      await downgradeToStarter(userId);
+      return true;
+    }
+
+    return false;
+  }
+
+  async function rollStarterPeriodIfNeeded(userId, row) {
+    const today = isoDate(new Date());
     let start = normalizeDbDate(row.period_start) || today;
     let end = normalizeDbDate(row.period_end) || addMonthsDate(start, 1);
 
@@ -295,33 +357,39 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     }
   }
 
+  async function refreshBillingState(userId) {
+    let row = await getUserBillingRow(userId);
+    if (!row) return null;
+
+    const downgraded = await syncAndExpireSubscription(userId, row);
+    if (downgraded) row = await getUserBillingRow(userId);
+
+    if (row && (row.plan || 'starter') === 'starter') {
+      await rollStarterPeriodIfNeeded(userId, row);
+      row = await getUserBillingRow(userId);
+    }
+
+    return row;
+  }
+
+  async function ensurePeriod(userId) {
+    await refreshBillingState(userId);
+  }
+
   async function getSubscription(userId) {
-    await ensurePeriod(userId);
-    const row = await getUserBillingRow(userId);
+    const row = await refreshBillingState(userId);
     if (!row) return null;
 
     const plan = row.plan || 'starter';
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
     const status = row.subscription_status || 'none';
-    const today = isoDate(new Date());
-
-    let periodEnd = normalizeDbDate(row.period_end);
+    const periodEnd = normalizeDbDate(row.period_end);
     const periodStart = normalizeDbDate(row.period_start);
 
-    // Legacy accounts: paid plan from one-time checkout before recurring billing (no Stripe sub id).
-    if (PAID_PLANS.includes(plan) && !row.stripe_subscription_id && !periodEnd && periodStart) {
-      periodEnd = addMonthsDate(periodStart, 1);
-      try {
-        await sql`UPDATE users SET period_end = ${periodEnd}, updated_at = now() WHERE id = ${userId}`;
-      } catch (_) { /* optional column */ }
-    }
-
-    const stripeActive = ACTIVE_SUB_STATUSES.has(status) && PAID_PLANS.includes(plan);
-    const legacyPaidActive =
-      PAID_PLANS.includes(plan) &&
-      !row.stripe_subscription_id &&
-      periodEnd != null &&
-      today <= periodEnd;
+    const stripeActive =
+      Boolean(row.stripe_subscription_id) &&
+      ACTIVE_SUB_STATUSES.has(status) &&
+      PAID_PLANS.includes(plan);
 
     let cancelAtPeriodEnd = false;
     if (stripe && row.stripe_subscription_id) {
@@ -340,24 +408,15 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       emails_limit: limits.emails,
       sms_limit: limits.sms,
       subscription_status: status,
-      has_active_subscription: stripeActive || legacyPaidActive,
+      has_active_subscription: stripeActive,
       cancel_at_period_end: cancelAtPeriodEnd,
-      next_billing_date: periodEnd,
+      next_billing_date: stripeActive ? periodEnd : null,
     };
   }
 
   async function canSendEmail(userId) {
-    await ensurePeriod(userId);
     const sub = await getSubscription(userId);
     if (!sub) return { ok: false, error: 'User not found', code: 'USER_NOT_FOUND' };
-
-    if (PAID_PLANS.includes(sub.plan) && !sub.has_active_subscription) {
-      return {
-        ok: false,
-        error: 'Your subscription is not active. Open the Plan page to update billing or renew.',
-        code: 'SUBSCRIPTION_INACTIVE',
-      };
-    }
 
     if (sub.emails_sent >= sub.emails_limit) {
       return {
@@ -370,17 +429,8 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
   }
 
   async function canSendSms(userId) {
-    await ensurePeriod(userId);
     const sub = await getSubscription(userId);
     if (!sub) return { ok: false, error: 'User not found', code: 'USER_NOT_FOUND' };
-
-    if (PAID_PLANS.includes(sub.plan) && !sub.has_active_subscription) {
-      return {
-        ok: false,
-        error: 'Your subscription is not active. Open the Plan page to update billing or renew.',
-        code: 'SUBSCRIPTION_INACTIVE',
-      };
-    }
 
     if (sub.sms_limit === 0) {
       return {
@@ -564,7 +614,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       }
       if (!userId) return;
 
-      if (['canceled', 'unpaid', 'incomplete_expired'].includes(sub.status)) {
+      if (['canceled', 'unpaid', 'incomplete_expired', 'past_due'].includes(sub.status)) {
         await downgradeToStarter(userId);
         return;
       }
