@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -11,6 +12,7 @@ import {
   MessageSquare,
   Receipt,
   Search,
+  MoreHorizontal,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import type { CustomerNew } from '../lib/database.types';
@@ -71,6 +73,12 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
     'reminder' | 'offer' | 'sms' | 'invoice' | null
   >(null);
   const [invoiceModalCustomer, setInvoiceModalCustomer] = useState<CustomerNew | null>(null);
+  const [actionMenu, setActionMenu] = useState<{
+    customer: CustomerNew;
+    top: number;
+    left: number;
+  } | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
 
   function normalizeNullableText(value: string): string | null {
     const trimmed = value.trim();
@@ -240,6 +248,29 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
       })
       .finally(() => setIsSyncing(false));
   }, [online]);
+
+  useEffect(() => {
+    if (!actionMenu) return;
+    const close = () => setActionMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActionMenu(null);
+    };
+    const onPointerDown = (e: globalThis.MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setActionMenu(null);
+      }
+    };
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [actionMenu]);
 
   const refreshPendingCount = () => setPendingCount(getPendingQueue().length);
 
@@ -935,14 +966,14 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
                             <button
                               onClick={() => handleSendInvoice(customer)}
                               disabled={sendingAction !== null}
-                              className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                              className={`p-2.5 rounded-lg transition-colors disabled:opacity-50 ${
                                 (customer as { last_invoice_sent_at?: string | null })
                                   .last_invoice_sent_at
                                   ? 'text-green-600 bg-green-50 hover:bg-green-100'
                                   : 'text-slate-600 hover:bg-slate-100'
                               }`}
                             >
-                              <Receipt className="w-4 h-4" />
+                              <Receipt className="w-5 h-5" />
                             </button>
                             <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
                               {(customer as { last_invoice_sent_at?: string | null })
@@ -956,71 +987,12 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
                             <button
                               onClick={() => handleSendReminder(customer)}
                               disabled={sendingAction !== null}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                              className="p-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                             >
-                              <Mail className="w-4 h-4" />
+                              <Mail className="w-5 h-5" />
                             </button>
                             <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
                               Send Reminder (email)
-                            </span>
-                          </div>
-
-                          <div className="relative group">
-                            <button
-                              onClick={() => handleEdit(customer)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
-                              Edit Customer
-                            </span>
-                          </div>
-
-                          <div className="relative group">
-                            <button
-                              onClick={() => setSelectedCustomerForTransactions(customer)}
-                              className="relative p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                            >
-                              <Calendar className="w-4 h-4" />
-                              {(customer.total_orders ?? 0) > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 min-w-[1.25rem] h-5 px-1 flex items-center justify-center text-[10px] font-semibold text-purple-700 bg-purple-200 rounded-full">
-                                  {customer.total_orders}
-                                </span>
-                              )}
-                            </button>
-                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
-                              View Transactions
-                            </span>
-                          </div>
-
-                          <div className="relative group">
-                            <button
-                              onClick={() => setSelectedCustomerForNotes(customer)}
-                              className="relative p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                            >
-                              <FileText className="w-4 h-4" />
-                              {notesCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 min-w-[1.25rem] h-5 px-1 flex items-center justify-center text-[10px] font-semibold text-amber-700 bg-amber-200 rounded-full">
-                                  {notesCount}
-                                </span>
-                              )}
-                            </button>
-                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
-                              Customer Notes
-                            </span>
-                          </div>
-
-                          <div className="relative group">
-                            <button
-                              onClick={() => handleSendOffer(customer)}
-                              disabled={sendingAction !== null}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              <Mail className="w-4 h-4" />
-                            </button>
-                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
-                              Send Offer (email)
                             </span>
                           </div>
 
@@ -1032,13 +1004,13 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
                                 !customer.phone?.trim() ||
                                 !customer.sms_consent_at
                               }
-                              className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                              className={`p-2.5 rounded-lg transition-colors disabled:opacity-50 ${
                                 customer.last_sms_sent_at
                                   ? 'text-green-600 bg-green-50 hover:bg-green-100'
                                   : 'text-indigo-600 hover:bg-indigo-50'
                               }`}
                             >
-                              <MessageSquare className="w-4 h-4" />
+                              <MessageSquare className="w-5 h-5" />
                             </button>
                             <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20 max-w-[14rem] text-center">
                               {!customer.phone?.trim()
@@ -1053,13 +1025,37 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
 
                           <div className="relative group">
                             <button
-                              onClick={() => handleDelete(customer.id)}
-                              className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                              onClick={() => handleEdit(customer)}
+                              className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Edit className="w-5 h-5" />
                             </button>
                             <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
-                              Delete
+                              Edit Customer
+                            </span>
+                          </div>
+
+                          <div className="relative group">
+                            <button
+                              onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setActionMenu((prev) =>
+                                  prev && prev.customer.id === customer.id
+                                    ? null
+                                    : { customer, top: rect.bottom + 6, left: rect.right }
+                                );
+                              }}
+                              aria-label="More actions"
+                              aria-haspopup="menu"
+                              className="relative p-2.5 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            >
+                              <MoreHorizontal className="w-5 h-5" />
+                              {((customer.total_orders ?? 0) > 0 || notesCount > 0) && (
+                                <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full" />
+                              )}
+                            </button>
+                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 text-xs font-medium text-white bg-gray-800 rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity pointer-events-none whitespace-nowrap z-20">
+                              More actions
                             </span>
                           </div>
                         </div>
@@ -1114,6 +1110,93 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
           onClose={() => setShowImportExport(false)}
         />
       )}
+
+      {actionMenu &&
+        createPortal(
+          <div
+            ref={actionMenuRef}
+            role="menu"
+            style={{ position: 'fixed', top: actionMenu.top, left: actionMenu.left }}
+            className="z-50 w-56 -translate-x-full rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setSelectedCustomerForTransactions(actionMenu.customer);
+                setActionMenu(null);
+              }}
+              className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <span className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-purple-600" />
+                View transactions
+              </span>
+              {(actionMenu.customer.total_orders ?? 0) > 0 && (
+                <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                  {actionMenu.customer.total_orders}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setSelectedCustomerForNotes(actionMenu.customer);
+                setActionMenu(null);
+              }}
+              className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <span className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-amber-600" />
+                Customer notes
+              </span>
+              {(() => {
+                const n = Array.isArray((actionMenu.customer as { notes?: unknown[] }).notes)
+                  ? (actionMenu.customer as { notes?: unknown[] }).notes!.length
+                  : 0;
+                return n > 0 ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                    {n}
+                  </span>
+                ) : null;
+              })()}
+            </button>
+
+            <button
+              type="button"
+              role="menuitem"
+              disabled={sendingAction !== null}
+              onClick={() => {
+                const c = actionMenu.customer;
+                setActionMenu(null);
+                handleSendOffer(c);
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Mail className="w-4 h-4 text-green-600" />
+              Send offer (email)
+            </button>
+
+            <div className="my-1 border-t border-gray-100" />
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const id = actionMenu.customer.id;
+                setActionMenu(null);
+                handleDelete(id);
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete customer
+            </button>
+          </div>,
+          document.body
+        )}
 
       {invoiceModalCustomer && (
         <SendInvoiceModal
