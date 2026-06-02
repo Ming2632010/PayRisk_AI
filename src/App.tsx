@@ -280,6 +280,10 @@ function App() {
         <Link to="/terms" className="text-blue-600 hover:underline">
           Terms of Service
         </Link>
+        <span className="mx-2">·</span>
+        <Link to="/sms-terms" className="text-blue-600 hover:underline">
+          SMS Terms
+        </Link>
       </footer>
     </div>
   );
