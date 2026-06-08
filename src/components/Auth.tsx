@@ -1,7 +1,7 @@
 // src/components/Auth.tsx
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Shield, Mail, Lock, ArrowLeft } from 'lucide-react';
+import { Shield, Mail, Lock, ArrowLeft, Send, TrendingUp, Repeat, Globe } from 'lucide-react';
 import { setAuth } from '../lib/auth';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -125,16 +125,82 @@ export function Auth({ onAuthSuccess }: AuthProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4">
-            <Shield className="w-8 h-8 text-white" />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50">
+      <div className="mx-auto grid min-h-screen max-w-6xl items-center gap-10 px-4 py-10 lg:grid-cols-2 lg:gap-16 lg:py-16">
+        {/* Marketing / introduction */}
+        <section className="order-2 lg:order-1">
+          <div className="inline-flex items-center gap-2 mb-5">
+            <div className="inline-flex items-center justify-center w-11 h-11 bg-blue-600 rounded-xl">
+              <Shield className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-xl font-bold text-gray-900">PayRisk AI</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">PayRisk AI</h1>
-          <p className="text-gray-600">Protect your cash flow & unlock hidden revenue</p>
-        </div>
 
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-gray-900 leading-tight">
+            Get paid faster and keep customers coming back
+          </h1>
+          <p className="mt-4 text-lg text-gray-600 max-w-xl">
+            PayRisk AI predicts payment risk, automates invoice and payment reminders by email and
+            SMS, and shows you which customers are most likely to buy again — so you protect cash
+            flow and unlock hidden revenue.
+          </p>
+
+          <ul className="mt-8 space-y-4 max-w-xl">
+            <li className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                <Send className="h-5 w-5" />
+              </span>
+              <span className="text-gray-700">
+                <strong className="font-semibold text-gray-900">Automated reminders.</strong> Send
+                payment and invoice reminders by email and SMS, right on time.
+              </span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                <TrendingUp className="h-5 w-5" />
+              </span>
+              <span className="text-gray-700">
+                <strong className="font-semibold text-gray-900">Payment risk scoring.</strong> See
+                who is likely to pay late before it happens.
+              </span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-100 text-green-700">
+                <Repeat className="h-5 w-5" />
+              </span>
+              <span className="text-gray-700">
+                <strong className="font-semibold text-gray-900">Repurchase insights.</strong> Spot
+                customers who are ready to buy from you again.
+              </span>
+            </li>
+          </ul>
+
+          <div className="mt-8 max-w-xl rounded-xl border border-gray-200 bg-white/70 p-4">
+            <div className="flex items-start gap-3">
+              <Globe className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+              <div className="text-sm text-gray-700">
+                <p>
+                  <strong className="font-semibold text-gray-900">Email reminders: worldwide.</strong>{' '}
+                  Reach customers in any country.
+                </p>
+                <p className="mt-1.5">
+                  <strong className="font-semibold text-gray-900">SMS reminders:</strong> available
+                  now in <strong>Australia</strong> and the <strong>United States</strong>.{' '}
+                  <span className="text-gray-500">
+                    Canada, New Zealand and the United Kingdom coming soon.
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-6 text-sm text-gray-500">
+            Free Starter plan · No credit card required to begin.
+          </p>
+        </section>
+
+        {/* Sign in / sign up */}
+        <div className="order-1 w-full max-w-md mx-auto lg:order-2 lg:mx-0 lg:justify-self-end">
         <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8">
           {/* 标题 */}
           <h2 className="text-2xl font-bold text-gray-900 mb-6">
@@ -359,7 +425,12 @@ export function Auth({ onAuthSuccess }: AuthProps) {
           <Link to="/terms" className="text-blue-600 hover:underline">
             Terms of Service
           </Link>
+          <span className="mx-2">·</span>
+          <Link to="/sms-terms" className="text-blue-600 hover:underline">
+            SMS Terms
+          </Link>
         </p>
+        </div>
       </div>
     </div>
   );
