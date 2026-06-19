@@ -197,6 +197,11 @@ export function Auth({ onAuthSuccess }: AuthProps) {
                     Canada, New Zealand and the United Kingdom coming soon.
                   </span>
                 </p>
+                <p className="mt-2">
+                  <Link to="/sms-terms" className="font-medium text-blue-600 hover:underline">
+                    How SMS consent, opt-out and message types work →
+                  </Link>
+                </p>
               </div>
             </div>
           </div>
