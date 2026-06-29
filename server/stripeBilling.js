@@ -89,6 +89,18 @@ function invoicePaidDate(inv) {
   return normalizeDbDate(unixToIsoDate(paidAt));
 }
 
+/** Stripe Basil (2025-03-31+) removed top-level invoice.subscription — use parent.subscription_details. */
+function invoiceSubscriptionId(inv) {
+  const legacy = inv?.subscription;
+  if (legacy) return typeof legacy === 'string' ? legacy : legacy?.id ?? null;
+  const parent = inv?.parent;
+  if (parent?.type === 'subscription_details') {
+    const sub = parent.subscription_details?.subscription;
+    return typeof sub === 'string' ? sub : sub?.id ?? null;
+  }
+  return null;
+}
+
 function formatUsd(cents) {
   return `$${(cents / 100).toFixed(2)} USD`;
 }
@@ -156,25 +168,39 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       `;
       return rows[0] ?? null;
     } catch (e) {
-      if (!e.message || !/stripe_|subscription_|period_end|column/.test(e.message)) throw e;
-      const rows = await sql`
-        SELECT id, email, plan, period_start,
-               emails_sent_current_period, sms_sent_current_period
-        FROM users WHERE id = ${userId}
-      `;
-      const r = rows[0];
-      if (!r) return null;
-      return {
-        ...r,
-        period_end: null,
-        stripe_customer_id: null,
-        stripe_subscription_id: null,
-        subscription_status: 'none',
-        subscription_renewal_reminder_sent_at: null,
-        usage_period_start: null,
-        usage_reset_for_invoice_id: null,
-        updated_at: null,
-      };
+      if (!e.message || !/column/.test(e.message)) throw e;
+      try {
+        const rows = await sql`
+          SELECT id, email, plan, period_start, period_end,
+                 emails_sent_current_period, sms_sent_current_period,
+                 stripe_customer_id, stripe_subscription_id, subscription_status,
+                 subscription_renewal_reminder_sent_at, updated_at
+          FROM users WHERE id = ${userId}
+        `;
+        const r = rows[0];
+        if (!r) return null;
+        return { ...r, usage_period_start: null, usage_reset_for_invoice_id: null };
+      } catch (e2) {
+        if (!e2.message || !/stripe_|subscription_|period_end|column/.test(e2.message)) throw e2;
+        const rows = await sql`
+          SELECT id, email, plan, period_start,
+                 emails_sent_current_period, sms_sent_current_period
+          FROM users WHERE id = ${userId}
+        `;
+        const r = rows[0];
+        if (!r) return null;
+        return {
+          ...r,
+          period_end: null,
+          stripe_customer_id: null,
+          stripe_subscription_id: null,
+          subscription_status: 'none',
+          subscription_renewal_reminder_sent_at: null,
+          usage_period_start: null,
+          usage_reset_for_invoice_id: null,
+          updated_at: null,
+        };
+      }
     }
   }
 
@@ -283,22 +309,6 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     return invoices;
   }
 
-  /** Paid invoice for the current Stripe period not yet applied to usage counters. */
-  async function findUnprocessedPaidInvoiceForPeriod(row, stripePeriodStart) {
-    if (!stripePeriodStart) return null;
-    const invoices = await listPaidInvoicesForUser(row);
-    const sorted = [...invoices].sort((a, b) => b.created - a.created);
-    const storedInvoiceId = row.usage_reset_for_invoice_id ?? null;
-
-    for (const inv of sorted) {
-      if (inv.amount_paid <= 0) continue;
-      if (inv.id === storedInvoiceId) continue;
-      const paidDate = invoicePaidDate(inv);
-      if (paidDate && paidDate >= stripePeriodStart) return inv;
-    }
-    return null;
-  }
-
   /** Reset usage when a paid invoice for this period has not yet reset counters. */
   async function reconcileBillingUsagePeriod(userId, row) {
     const plan = row.plan || 'starter';
@@ -333,40 +343,28 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       Number(row.emails_sent_current_period ?? 0) > 0 ||
       Number(row.sms_sent_current_period ?? 0) > 0;
     const storedInvoiceId = row.usage_reset_for_invoice_id ?? null;
+    const usagePeriodStart = normalizeDbDate(row.usage_period_start);
+    const dbPeriodStart = normalizeDbDate(row.period_start);
 
-    // Invoice recorded but counters were never cleared (partial/failed reset).
-    if (storedInvoiceId && hasUsage) {
-      try {
-        const storedInv = await stripe.invoices.retrieve(storedInvoiceId);
-        const paidDate = invoicePaidDate(storedInv);
-        if (
-          storedInv.status === 'paid' &&
-          storedInv.amount_paid > 0 &&
-          paidDate &&
-          paidDate >= stripePeriodStart
-        ) {
-          await resetUsagePeriod(userId, stripePeriodStart, stripePeriodEnd, {
-            ...resetExtra,
-            stripeInvoiceId: storedInvoiceId,
-          });
-          return;
-        }
-      } catch (_) {
-        /* invoice missing or API error — fall through */
+    const invoices = await listPaidInvoicesForUser(row);
+    const latestPeriodInvoice =
+      invoices
+        .filter((inv) => inv.amount_paid > 0 && invoicePaidDate(inv) >= stripePeriodStart)
+        .sort((a, b) => b.created - a.created)[0] ?? null;
+
+    if (latestPeriodInvoice) {
+      const needsReset =
+        latestPeriodInvoice.id !== storedInvoiceId ||
+        (latestPeriodInvoice.id === storedInvoiceId && hasUsage);
+      if (needsReset) {
+        await resetUsagePeriod(userId, stripePeriodStart, stripePeriodEnd, {
+          ...resetExtra,
+          stripeInvoiceId: latestPeriodInvoice.id,
+        });
+        return;
       }
     }
 
-    const unprocessedInvoice = await findUnprocessedPaidInvoiceForPeriod(row, stripePeriodStart);
-    if (unprocessedInvoice) {
-      await resetUsagePeriod(userId, stripePeriodStart, stripePeriodEnd, {
-        ...resetExtra,
-        stripeInvoiceId: unprocessedInvoice.id,
-      });
-      return;
-    }
-
-    const usagePeriodStart = normalizeDbDate(row.usage_period_start);
-    const dbPeriodStart = normalizeDbDate(row.period_start);
     if (
       (usagePeriodStart && usagePeriodStart !== stripePeriodStart) ||
       (dbPeriodStart && dbPeriodStart !== stripePeriodStart)
@@ -755,11 +753,15 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
 
     if (event.type === 'invoice.paid') {
       const invoice = event.data.object;
-      if (!invoice.subscription || !stripe) return;
+      if (!stripe) return;
 
-      const sub = await stripe.subscriptions.retrieve(
-        typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription.id,
-      );
+      const subscriptionId = invoiceSubscriptionId(invoice);
+      if (!subscriptionId) {
+        console.warn('invoice.paid: no subscription on invoice', invoice.id);
+        return;
+      }
+
+      const sub = await stripe.subscriptions.retrieve(subscriptionId);
       let userId = sub.metadata?.userId;
       if (!userId) {
         userId = await findUserIdByStripeRefs({
@@ -773,11 +775,10 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       }
 
       const { start, end } = subscriptionPeriodBounds(sub);
-      const invBounds = invoicePeriodBounds(invoice);
-      const periodStart = normalizeDbDate(unixToIsoDate(invBounds.start)) || unixToIsoDate(start);
-      const periodEnd = normalizeDbDate(unixToIsoDate(invBounds.end)) || unixToIsoDate(end);
+      const periodStart = normalizeDbDate(unixToIsoDate(start));
+      const periodEnd = normalizeDbDate(unixToIsoDate(end));
       const plan = await resolvePlanFromSubscription(sub);
-      if (!plan) return;
+      if (!plan || !periodStart) return;
 
       await resetUsagePeriod(userId, periodStart, periodEnd, {
         plan,
@@ -791,11 +792,12 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
 
     if (event.type === 'invoice.upcoming') {
       const invoice = event.data.object;
-      if (!invoice.subscription || !stripe) return;
+      if (!stripe) return;
 
-      const sub = await stripe.subscriptions.retrieve(
-        typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription.id,
-      );
+      const subscriptionId = invoiceSubscriptionId(invoice);
+      if (!subscriptionId) return;
+
+      const sub = await stripe.subscriptions.retrieve(subscriptionId);
       let userId = sub.metadata?.userId;
       if (!userId) {
         userId = await findUserIdByStripeRefs({
