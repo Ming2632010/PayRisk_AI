@@ -339,9 +339,6 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       stripeCustomerId: customerId ?? row.stripe_customer_id,
     };
 
-    const hasUsage =
-      Number(row.emails_sent_current_period ?? 0) > 0 ||
-      Number(row.sms_sent_current_period ?? 0) > 0;
     const storedInvoiceId = row.usage_reset_for_invoice_id ?? null;
     const usagePeriodStart = normalizeDbDate(row.usage_period_start);
     const dbPeriodStart = normalizeDbDate(row.period_start);
@@ -353,10 +350,9 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
         .sort((a, b) => b.created - a.created)[0] ?? null;
 
     if (latestPeriodInvoice) {
-      const needsReset =
-        latestPeriodInvoice.id !== storedInvoiceId ||
-        (latestPeriodInvoice.id === storedInvoiceId && hasUsage);
-      if (needsReset) {
+      // Reset only when this billing period's paid invoice has not yet been applied.
+      // Do not reset just because counters > 0 — that is normal usage after a valid reset.
+      if (latestPeriodInvoice.id !== storedInvoiceId) {
         await resetUsagePeriod(userId, stripePeriodStart, stripePeriodEnd, {
           ...resetExtra,
           stripeInvoiceId: latestPeriodInvoice.id,
