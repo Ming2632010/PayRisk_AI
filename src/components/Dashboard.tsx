@@ -119,10 +119,13 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
     .sort((a, b) => b.repurchaseScore - a.repurchaseScore)
     .slice(0, 5);
 
-  const [sendingAction, setSendingAction] = useState<'reminder' | 'offer' | null>(null);
+  const [sendingState, setSendingState] = useState<{
+    customerId: number;
+    action: 'reminder' | 'offer';
+  } | null>(null);
 
   async function handleSendReminder(customer: Customer) {
-    setSendingAction('reminder');
+    setSendingState({ customerId: customer.id, action: 'reminder' });
     try {
       await api.customers.sendReminder(customer.id);
       alert(`Payment reminder sent by email to ${customer.name}.`);
@@ -130,12 +133,12 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
       if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
       else alert(e instanceof Error ? e.message : 'Failed to send reminder');
     } finally {
-      setSendingAction(null);
+      setSendingState(null);
     }
   }
 
   async function handleSendOffer(customer: Customer) {
-    setSendingAction('offer');
+    setSendingState({ customerId: customer.id, action: 'offer' });
     try {
       await api.customers.sendOffer(customer.id);
       alert(`Special offer sent by email to ${customer.name}.`);
@@ -143,7 +146,7 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
       if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
       else alert(e instanceof Error ? e.message : 'Failed to send offer');
     } finally {
-      setSendingAction(null);
+      setSendingState(null);
     }
   }
 
@@ -253,10 +256,12 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
                     </div>
                     <button
                       onClick={() => handleSendReminder(customer)}
-                      disabled={sendingAction !== null}
+                      disabled={sendingState !== null}
                       className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap"
                     >
-                      {sendingAction === 'reminder' ? 'Sending…' : 'Send Reminder'}
+                      {sendingState?.customerId === customer.id && sendingState.action === 'reminder'
+                        ? 'Sending…'
+                        : 'Send Reminder'}
                     </button>
                   </div>
                 </div>
@@ -303,10 +308,12 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
                     </div>
                     <button
                       onClick={() => handleSendOffer(customer)}
-                      disabled={sendingAction !== null}
+                      disabled={sendingState !== null}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap"
                     >
-                      {sendingAction === 'offer' ? 'Sending…' : 'Send Offer'}
+                      {sendingState?.customerId === customer.id && sendingState.action === 'offer'
+                        ? 'Sending…'
+                        : 'Send Offer'}
                     </button>
                   </div>
                 </div>
