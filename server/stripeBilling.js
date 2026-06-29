@@ -125,7 +125,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
   async function getUserBillingRow(userId) {
     try {
       const rows = await sql`
-        SELECT id, email, plan, period_start, period_end,
+        SELECT id, email, plan, period_start, period_end, usage_period_start,
                emails_sent_current_period, sms_sent_current_period,
                stripe_customer_id, stripe_subscription_id, subscription_status,
                subscription_renewal_reminder_sent_at, updated_at
@@ -148,6 +148,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
         stripe_subscription_id: null,
         subscription_status: 'none',
         subscription_renewal_reminder_sent_at: null,
+        usage_period_start: null,
         updated_at: null,
       };
     }
@@ -168,6 +169,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
             stripe_customer_id = COALESCE(${stripeCustomerId ?? null}, stripe_customer_id),
             stripe_subscription_id = COALESCE(${stripeSubscriptionId ?? null}, stripe_subscription_id),
             subscription_renewal_reminder_sent_at = NULL,
+            usage_period_start = ${periodStart},
             updated_at = now()
           WHERE id = ${userId}
         `;
@@ -179,6 +181,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
             emails_sent_current_period = 0,
             sms_sent_current_period = 0,
             subscription_renewal_reminder_sent_at = NULL,
+            usage_period_start = ${periodStart},
             updated_at = now()
           WHERE id = ${userId}
         `;
@@ -191,9 +194,71 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
           period_start = ${periodStart},
           emails_sent_current_period = 0,
           sms_sent_current_period = 0,
+          usage_period_start = ${periodStart},
           updated_at = now()
         WHERE id = ${userId}
       `;
+    }
+  }
+
+  async function hasPaidRenewalInvoiceForPeriod(row) {
+    if (!stripe || !row.stripe_subscription_id) return false;
+    const periodStart = normalizeDbDate(row.period_start);
+    if (!periodStart) return false;
+    try {
+      const listed = await stripe.invoices.list({
+        subscription: row.stripe_subscription_id,
+        status: 'paid',
+        limit: 12,
+      });
+      return listed.data.some(
+        (inv) =>
+          inv.billing_reason === 'subscription_cycle' &&
+          normalizeDbDate(unixToIsoDate(inv.period_start)) === periodStart,
+      );
+    } catch (e) {
+      console.error('Stripe invoice list for usage reconcile failed:', e.message);
+      return false;
+    }
+  }
+
+  /** Reset usage when billing period advanced but invoice.paid webhook was missed. */
+  async function reconcileBillingUsagePeriod(userId, row) {
+    const plan = row.plan || 'starter';
+    if (!PAID_PLANS.includes(plan) || !row.stripe_subscription_id) return;
+
+    const periodStart = normalizeDbDate(row.period_start);
+    const periodEnd = normalizeDbDate(row.period_end);
+    if (!periodStart) return;
+
+    const usagePeriodStart = normalizeDbDate(row.usage_period_start);
+    if (usagePeriodStart === periodStart) return;
+
+    const resetExtra = {
+      plan,
+      subscriptionStatus: row.subscription_status,
+      stripeSubscriptionId: row.stripe_subscription_id,
+      stripeCustomerId: row.stripe_customer_id,
+    };
+
+    if (usagePeriodStart && usagePeriodStart !== periodStart) {
+      await resetUsagePeriod(userId, periodStart, periodEnd, resetExtra);
+      return;
+    }
+
+    if (usagePeriodStart == null) {
+      if (await hasPaidRenewalInvoiceForPeriod(row)) {
+        await resetUsagePeriod(userId, periodStart, periodEnd, resetExtra);
+        return;
+      }
+      try {
+        await sql`
+          UPDATE users SET usage_period_start = ${periodStart}, updated_at = now()
+          WHERE id = ${userId}
+        `;
+      } catch (e) {
+        if (!e.message || !/usage_period_start|column/.test(e.message)) throw e;
+      }
     }
   }
 
@@ -209,7 +274,12 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     const status = sub.status || 'none';
     const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
 
-    if (resetUsage) {
+    const row = await getUserBillingRow(userId);
+    const storedStart = normalizeDbDate(row?.period_start);
+    const periodChanged = Boolean(periodStart && storedStart && periodStart !== storedStart);
+    const shouldResetUsage = resetUsage || periodChanged;
+
+    if (shouldResetUsage) {
       await resetUsagePeriod(userId, periodStart, periodEnd, {
         plan,
         subscriptionStatus: status,
@@ -374,6 +444,12 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     await syncAndExpireSubscription(userId, row);
     row = await getUserBillingRow(userId);
     if (!row) return null;
+
+    if (PAID_PLANS.includes(row.plan || 'starter')) {
+      await reconcileBillingUsagePeriod(userId, row);
+      row = await getUserBillingRow(userId);
+      if (!row) return null;
+    }
 
     if (row && (row.plan || 'starter') === 'starter') {
       await rollStarterPeriodIfNeeded(userId, row);
