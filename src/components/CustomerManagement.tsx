@@ -69,9 +69,14 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
   const [customers, setCustomers] = useState<CustomerNew[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [sendingAction, setSendingAction] = useState<
-    'reminder' | 'offer' | 'sms' | 'invoice' | null
-  >(null);
+  const [sendingState, setSendingState] = useState<{
+    customerId: number;
+    action: 'reminder' | 'offer' | 'sms';
+  } | null>(null);
+
+  function isSendingCustomer(customerId: number) {
+    return sendingState?.customerId === customerId;
+  }
   const [invoiceModalCustomer, setInvoiceModalCustomer] = useState<CustomerNew | null>(null);
   const [actionMenu, setActionMenu] = useState<{
     customer: CustomerNew;
@@ -239,10 +244,15 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
     if (queue.length === 0) return;
     setIsSyncing(true);
     processQueue(api as unknown as ProcessQueueApi)
-      .then(({ processed }) => {
+      .then(({ processed, errors }) => {
         if (processed > 0) {
           loadCustomers();
           onDueTodayRefresh?.();
+        }
+        if (errors > 0) {
+          alert(
+            `${errors} offline change(s) could not sync. They remain queued — try again when you're online.`
+          );
         }
         setPendingCount(getPendingQueue().length);
       })
@@ -389,7 +399,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
   }
 
   async function handleSendReminder(customer: CustomerNew) {
-    setSendingAction('reminder');
+    setSendingState({ customerId: customer.id, action: 'reminder' });
     try {
       await api.customers.sendReminder(customer.id);
       alert(`Payment reminder sent by email to ${customer.name}.`);
@@ -398,12 +408,12 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
       if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
       else alert(e instanceof Error ? e.message : 'Failed to send reminder');
     } finally {
-      setSendingAction(null);
+      setSendingState(null);
     }
   }
 
   async function handleSendOffer(customer: CustomerNew) {
-    setSendingAction('offer');
+    setSendingState({ customerId: customer.id, action: 'offer' });
     try {
       await api.customers.sendOffer(customer.id);
       alert(`Special offer sent by email to ${customer.name}.`);
@@ -411,7 +421,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
       if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
       else alert(e instanceof Error ? e.message : 'Failed to send offer');
     } finally {
-      setSendingAction(null);
+      setSendingState(null);
     }
   }
 
@@ -426,7 +436,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
       );
       return;
     }
-    setSendingAction('sms');
+    setSendingState({ customerId: customer.id, action: 'sms' });
     try {
       const result = await api.customers.sendSms(customer.id);
       alert(`SMS sent to ${customer.name}${result?.to ? ` (${result.to})` : ''}.`);
@@ -436,7 +446,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
       if (isPlanLimitError(e)) alertPlanLimit(e, onOpenPlanPage);
       else alert(e instanceof Error ? e.message : 'Failed to send SMS');
     } finally {
-      setSendingAction(null);
+      setSendingState(null);
     }
   }
 
@@ -965,7 +975,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
                           <div className="relative group">
                             <button
                               onClick={() => handleSendInvoice(customer)}
-                              disabled={sendingAction !== null}
+                              disabled={isSendingCustomer(customer.id)}
                               className={`p-2.5 rounded-lg transition-colors disabled:opacity-50 ${
                                 (customer as { last_invoice_sent_at?: string | null })
                                   .last_invoice_sent_at
@@ -986,7 +996,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
                           <div className="relative group">
                             <button
                               onClick={() => handleSendReminder(customer)}
-                              disabled={sendingAction !== null}
+                              disabled={isSendingCustomer(customer.id)}
                               className="p-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                             >
                               <Mail className="w-5 h-5" />
@@ -1000,7 +1010,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
                             <button
                               onClick={() => handleSendSms(customer)}
                               disabled={
-                                sendingAction !== null ||
+                                isSendingCustomer(customer.id) ||
                                 !customer.phone?.trim() ||
                                 !customer.sms_consent_at
                               }
@@ -1167,7 +1177,7 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
             <button
               type="button"
               role="menuitem"
-              disabled={sendingAction !== null}
+              disabled={isSendingCustomer(actionMenu.customer.id)}
               onClick={() => {
                 const c = actionMenu.customer;
                 setActionMenu(null);

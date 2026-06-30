@@ -50,6 +50,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
     else console.warn('Stripe webhook received before billing module initialized');
   } catch (err) {
     console.error('Stripe webhook handler error:', err);
+    return res.status(500).send('Webhook handler failed');
   }
   res.sendStatus(200);
 });
@@ -625,12 +626,14 @@ app.put('/api/customers/:id/notes', async (req, res) => {
 app.post('/api/customers/:id/send-reminder', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await billing.canSendEmail(req.userId);
-    if (planLimitResponse(res, check)) return;
     const rows = await sql`SELECT id, name, email, amount_owed, due_date FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
     if (!resendApi) return res.status(503).json({ error: 'Email is not configured. Set RESEND_API_KEY and FROM_EMAIL in server environment.' });
+
+    const check = await billing.tryConsumeEmailSlot(req.userId);
+    if (planLimitResponse(res, check)) return;
+
     const amountOwed = c.amount_owed != null ? Number(c.amount_owed) : 0;
     const dueDateStr = c.due_date ? String(c.due_date).slice(0, 10) : '';
     const dueStr = dueDateStr ? ` by ${dueDateStr}` : '';
@@ -662,8 +665,10 @@ app.post('/api/customers/:id/send-reminder', async (req, res) => {
       subject: applyEmailTemplate(subject, vars),
       html,
     });
-    if (error) return res.status(500).json({ error: error.message || 'Failed to send email' });
-    await billing.incrementEmail(req.userId);
+    if (error) {
+      await billing.releaseEmailSlot(req.userId);
+      return res.status(500).json({ error: error.message || 'Failed to send email' });
+    }
     res.json({ sent: true, channel: 'email' });
   } catch (e) {
     console.error(e);
@@ -674,12 +679,14 @@ app.post('/api/customers/:id/send-reminder', async (req, res) => {
 app.post('/api/customers/:id/send-offer', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await billing.canSendEmail(req.userId);
-    if (planLimitResponse(res, check)) return;
     const rows = await sql`SELECT id, name, email FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
     if (!resendApi) return res.status(503).json({ error: 'Email is not configured. Set RESEND_API_KEY and FROM_EMAIL in server environment.' });
+
+    const check = await billing.tryConsumeEmailSlot(req.userId);
+    if (planLimitResponse(res, check)) return;
+
     let subject = DEFAULT_OFFER.subject;
     let htmlBody = DEFAULT_OFFER.body;
     let invSnip = { company_name: '', reply_email: '' };
@@ -707,8 +714,10 @@ app.post('/api/customers/:id/send-offer', async (req, res) => {
       subject: applyEmailTemplate(subject, vars),
       html,
     });
-    if (error) return res.status(500).json({ error: error.message || 'Failed to send email' });
-    await billing.incrementEmail(req.userId);
+    if (error) {
+      await billing.releaseEmailSlot(req.userId);
+      return res.status(500).json({ error: error.message || 'Failed to send email' });
+    }
     res.json({ sent: true, channel: 'email' });
   } catch (e) {
     console.error(e);
@@ -719,8 +728,6 @@ app.post('/api/customers/:id/send-offer', async (req, res) => {
 app.post('/api/customers/:id/send-sms', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await billing.canSendSms(req.userId);
-    if (planLimitResponse(res, check)) return;
     let rows;
     try {
       rows = await sql`SELECT id, name, phone, amount_owed, due_date, sms_consent_at FROM customers WHERE id = ${id} AND user_id = ${req.userId}`;
@@ -731,28 +738,38 @@ app.post('/api/customers/:id/send-sms', async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
     const c = rows[0];
 
-    if (c.phone?.trim() && Object.prototype.hasOwnProperty.call(c, 'sms_consent_at') && !c.sms_consent_at) {
+    if (!c.phone?.trim()) {
+      return res.status(400).json({
+        error: 'Customer has no phone number on file. Add one in Edit Customer.',
+      });
+    }
+
+    const hasConsentColumn = Object.prototype.hasOwnProperty.call(c, 'sms_consent_at');
+    if (!hasConsentColumn || !c.sms_consent_at) {
       return res.status(403).json({
         error: 'SMS not allowed for this customer until you confirm permission in Edit Customer (SMS consent checkbox).',
       });
     }
 
+    const check = await billing.tryConsumeSmsSlot(req.userId);
+    if (planLimitResponse(res, check)) return;
+
     // Merchant config: Business profile (company, contact, phone, email, country code) + SMS template.
     const invTpl = await loadInvoiceTemplate(req.userId);
     const smsTpl = await loadSmsTemplate(req.userId);
 
-    // Normalize phone — trusts E.164 as-is, otherwise expands local numbers using the
-    // merchant's default country code from Business profile.
-    const rawPhone = req.body?.phone || c.phone || '';
+    const rawPhone = c.phone;
     const to = normalizePhoneE164(rawPhone, invTpl.sms_country_code);
-    if (!to) return res.status(400).json({ error: 'Customer has no valid phone number for SMS. Use an international format (e.g. +61 412 345 678) or set the default country code in Business profile.' });
+    if (!to) {
+      await billing.releaseSmsSlot(req.userId);
+      return res.status(400).json({ error: 'Customer has no valid phone number for SMS. Use an international format (e.g. +61 412 345 678) or set the default country code in Business profile.' });
+    }
 
     if (!twilioClient || (!twilioMessagingServiceSid && !twilioPhone)) {
+      await billing.releaseSmsSlot(req.userId);
       return res.status(503).json({ error: 'SMS is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and either TWILIO_MESSAGING_SERVICE_SID (preferred) or TWILIO_PHONE_NUMBER in server environment.' });
     }
 
-    // Build variables. Business-side values fall back to sensible defaults so the message
-    // never shows a raw "{{contact_name}}" token if the merchant hasn't filled in a field.
     const amountOwed = c.amount_owed != null ? Number(c.amount_owed) : 0;
     const dueDateStr = c.due_date ? String(c.due_date).slice(0, 10) : '';
     const businessName = invTpl.company_name || friendlyFromLogin(req.userEmail);
@@ -766,25 +783,24 @@ app.post('/api/customers/:id/send-sms', async (req, res) => {
       contact_number: invTpl.phone || '',
       contact_email: contactEmail,
     };
-    // Allow an ad-hoc override (e.g. future "send custom SMS" UI) while defaulting to the template.
-    const bodySource = (req.body?.message && String(req.body.message).trim()) || smsTpl.body || DEFAULT_SMS.body;
+    const bodySource = smsTpl.body || DEFAULT_SMS.body;
     const body = applySmsTemplate(bodySource, vars);
 
-    // Messaging Service SID (multi-country, auto-picks sender) is preferred. Fall back to
-    // the single configured number for simple setups.
     const payload = twilioMessagingServiceSid
       ? { body, messagingServiceSid: twilioMessagingServiceSid, to }
       : { body, from: twilioPhone, to };
-    await twilioClient.messages.create(payload);
+    try {
+      await twilioClient.messages.create(payload);
+    } catch (twilioErr) {
+      await billing.releaseSmsSlot(req.userId);
+      throw twilioErr;
+    }
 
-    // Audit trail for the merchant ("Last SMS: ..." on the customer row). Wrapped in try/catch
-    // so a missing column on a fresh deploy doesn't break the send.
     try {
       await sql`UPDATE customers SET last_sms_sent_at = now(), updated_at = now() WHERE id = ${c.id} AND user_id = ${req.userId}`;
     } catch (stampErr) {
       if (!stampErr.message || !/last_sms_sent_at|column/.test(stampErr.message)) throw stampErr;
     }
-    await billing.incrementSms(req.userId);
     res.json({ sent: true, channel: 'sms', to, preview: body });
   } catch (e) {
     console.error(e);
@@ -1268,6 +1284,14 @@ async function allocateInvoiceNumber(userId) {
   return formatInvoiceNumber(rows[0]?.invoice_counter ?? 1);
 }
 
+/** Undo a counter bump when invoice email fails before send completes. */
+async function releaseInvoiceNumber(userId) {
+  await sql`
+    UPDATE users SET invoice_counter = GREATEST(COALESCE(invoice_counter, 1) - 1, 0), updated_at = now()
+    WHERE id = ${userId}
+  `;
+}
+
 /** Render the invoice email subject/body template with the computed invoice figures. */
 function renderInvoiceEmailVars(emailTemplate, ctx) {
   const dueStr = ctx.due_date ? ` by ${ctx.due_date}` : '';
@@ -1329,8 +1353,6 @@ app.post('/api/customers/:id/invoice-preview', async (req, res) => {
 app.post('/api/customers/:id/send-invoice', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const check = await billing.canSendEmail(req.userId);
-    if (planLimitResponse(res, check)) return;
     const customer = await loadCustomerForInvoice(id, req.userId);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
     const ids = parseTransactionIds(req.body?.transaction_ids);
@@ -1339,6 +1361,9 @@ app.post('/api/customers/:id/send-invoice', async (req, res) => {
     const template = await loadInvoiceTemplate(req.userId);
     const emailTpl = await loadInvoiceEmailTemplate(req.userId);
     if (!resendApi) return res.status(503).json({ error: 'Email is not configured. Set RESEND_API_KEY and FROM_EMAIL in server environment.' });
+
+    const check = await billing.tryConsumeEmailSlot(req.userId);
+    if (planLimitResponse(res, check)) return;
 
     const { subtotal, tax_amount, total } = computeInvoiceTotals(txRows, template);
     const invoiceNumber = await allocateInvoiceNumber(req.userId);
@@ -1362,7 +1387,11 @@ app.post('/api/customers/:id/send-invoice', async (req, res) => {
       subject,
       html,
     });
-    if (error) return res.status(500).json({ error: error.message || 'Failed to send email' });
+    if (error) {
+      await billing.releaseEmailSlot(req.userId);
+      await releaseInvoiceNumber(req.userId);
+      return res.status(500).json({ error: error.message || 'Failed to send email' });
+    }
 
     const txIds = txRows.map((t) => Number(t.id)).filter(Boolean);
     let savedId = null;
@@ -1397,7 +1426,6 @@ app.post('/api/customers/:id/send-invoice', async (req, res) => {
       UPDATE customers SET last_invoice_sent_at = now(), updated_at = now()
       WHERE id = ${id} AND user_id = ${req.userId}
     `;
-    await billing.incrementEmail(req.userId);
     res.json({ sent: true, channel: 'email', invoice_id: savedId, invoice_number: invoiceNumber, total });
   } catch (e) {
     console.error(e);
@@ -1570,6 +1598,10 @@ app.get('/api/transactions', async (req, res) => {
 app.post('/api/transactions', async (req, res) => {
   try {
     const b = req.body;
+    const customerId = Number(b.customer_id);
+    const owned = await sql`SELECT id FROM customers WHERE id = ${customerId} AND user_id = ${req.userId}`;
+    if (owned.length === 0) return res.status(404).json({ error: 'Customer not found' });
+
     const orderDate = b.date ?? b.order_date;
     const paidFully = Boolean(b.paid_fully);
     const paidAt = paidFully && (b.paid_at || orderDate) ? (b.paid_at || orderDate) : null;
@@ -1579,13 +1611,13 @@ app.post('/api/transactions', async (req, res) => {
     const row = await sql`
       INSERT INTO transactions (customer_id, user_id, date, amount, description, status, finish_date, due_date, paid_fully, paid_at, apply_tax)
       VALUES (
-        ${Number(b.customer_id)}, ${req.userId}, ${orderDate}, ${Number(b.amount)},
+        ${customerId}, ${req.userId}, ${orderDate}, ${Number(b.amount)},
         ${b.description ?? b.items_tasks ?? null}, ${b.status ?? 'completed'},
         ${b.finish_date || null}, ${b.due_date || null}, ${paidFully}, ${paidAt}, ${applyTax}
       )
       RETURNING *
     `;
-    await recalcCustomerTotals(Number(b.customer_id));
+    await recalcCustomerTotals(customerId);
     res.status(201).json(row[0]);
   } catch (e) {
     console.error(e);

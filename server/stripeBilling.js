@@ -13,8 +13,8 @@ export const PLAN_PRICE_CENTS = { starter: 0, basic: 1900, professional: 4900, b
 export const PLAN_LABELS = { starter: 'Starter', basic: 'Basic', professional: 'Professional', business: 'Business' };
 
 const PAID_PLANS = ['basic', 'professional', 'business'];
-const ACTIVE_SUB_STATUSES = new Set(['active', 'trialing']);
-const INACTIVE_SUB_STATUSES = new Set(['canceled', 'unpaid', 'incomplete_expired', 'past_due', 'incomplete']);
+const ACTIVE_SUB_STATUSES = new Set(['active', 'trialing', 'past_due']);
+const INACTIVE_SUB_STATUSES = new Set(['canceled', 'unpaid', 'incomplete_expired', 'incomplete']);
 
 function lookupKeyForPlan(plan) {
   return `payrisk_${plan}_monthly`;
@@ -365,7 +365,36 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       (usagePeriodStart && usagePeriodStart !== stripePeriodStart) ||
       (dbPeriodStart && dbPeriodStart !== stripePeriodStart)
     ) {
-      await resetUsagePeriod(userId, stripePeriodStart, stripePeriodEnd, resetExtra);
+      if (latestPeriodInvoice) {
+        await resetUsagePeriod(userId, stripePeriodStart, stripePeriodEnd, {
+          ...resetExtra,
+          stripeInvoiceId: latestPeriodInvoice.id,
+        });
+      } else {
+        // Align period dates from Stripe without resetting counters (no paid invoice yet).
+        try {
+          await sql`
+            UPDATE users SET
+              plan = ${resolvedPlan},
+              period_start = ${stripePeriodStart},
+              period_end = ${stripePeriodEnd},
+              subscription_status = ${sub.status},
+              stripe_customer_id = COALESCE(${customerId ?? null}, stripe_customer_id),
+              stripe_subscription_id = ${sub.id},
+              usage_period_start = COALESCE(usage_period_start, ${stripePeriodStart}),
+              updated_at = now()
+            WHERE id = ${userId}
+          `;
+        } catch (e) {
+          if (!e.message || !/stripe_|subscription_|period_end|usage_period_start|column/.test(e.message)) {
+            throw e;
+          }
+          await sql`
+            UPDATE users SET plan = ${resolvedPlan}, period_start = ${stripePeriodStart}, updated_at = now()
+            WHERE id = ${userId}
+          `;
+        }
+      }
       return;
     }
 
@@ -483,11 +512,6 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
           return true;
         }
         if (ACTIVE_SUB_STATUSES.has(sub.status)) {
-          const periodEnd = unixToIsoDate(subscriptionPeriodBounds(sub).end);
-          if (periodEnd && today > periodEnd) {
-            await downgradeToStarter(userId);
-            return true;
-          }
           await syncUserFromSubscription(userId, sub, { resetUsage: false });
           return false;
         }
@@ -619,6 +643,69 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       cancel_at_period_end: cancelAtPeriodEnd,
       next_billing_date: stripeActive ? periodEnd : null,
     };
+  }
+
+  async function tryConsumeEmailSlot(userId) {
+    await refreshBillingState(userId);
+    const row = await getUserBillingRow(userId);
+    if (!row) return { ok: false, error: 'User not found', code: 'USER_NOT_FOUND' };
+    const plan = row.plan || 'starter';
+    const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
+    const updated = await sql`
+      UPDATE users SET emails_sent_current_period = COALESCE(emails_sent_current_period, 0) + 1
+      WHERE id = ${userId} AND COALESCE(emails_sent_current_period, 0) < ${limits.emails}
+      RETURNING emails_sent_current_period
+    `;
+    if (!updated.length) {
+      return {
+        ok: false,
+        error: 'Email limit reached for this billing period. Upgrade your plan on the Plan page.',
+        code: 'EMAIL_LIMIT_REACHED',
+      };
+    }
+    return { ok: true };
+  }
+
+  async function releaseEmailSlot(userId) {
+    await sql`
+      UPDATE users SET emails_sent_current_period = GREATEST(COALESCE(emails_sent_current_period, 0) - 1, 0)
+      WHERE id = ${userId}
+    `;
+  }
+
+  async function tryConsumeSmsSlot(userId) {
+    await refreshBillingState(userId);
+    const row = await getUserBillingRow(userId);
+    if (!row) return { ok: false, error: 'User not found', code: 'USER_NOT_FOUND' };
+    const plan = row.plan || 'starter';
+    const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
+    if (limits.sms === 0) {
+      return {
+        ok: false,
+        error: 'SMS is not included on your plan. Upgrade to Basic or higher on the Plan page.',
+        code: 'SMS_NOT_INCLUDED',
+      };
+    }
+    const updated = await sql`
+      UPDATE users SET sms_sent_current_period = COALESCE(sms_sent_current_period, 0) + 1
+      WHERE id = ${userId} AND COALESCE(sms_sent_current_period, 0) < ${limits.sms}
+      RETURNING sms_sent_current_period
+    `;
+    if (!updated.length) {
+      return {
+        ok: false,
+        error: 'SMS limit reached for this billing period. Upgrade your plan on the Plan page.',
+        code: 'SMS_LIMIT_REACHED',
+      };
+    }
+    return { ok: true };
+  }
+
+  async function releaseSmsSlot(userId) {
+    await sql`
+      UPDATE users SET sms_sent_current_period = GREATEST(COALESCE(sms_sent_current_period, 0) - 1, 0)
+      WHERE id = ${userId}
+    `;
   }
 
   async function canSendEmail(userId) {
@@ -806,11 +893,11 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       const row = await getUserBillingRow(userId);
       if (!row?.email) return;
 
-      const periodEnd = unixToIsoDate(invoice.period_end);
-      const alreadySent =
-        row.subscription_renewal_reminder_sent_at &&
-        String(row.subscription_renewal_reminder_sent_at).slice(0, 10) === periodEnd;
-      if (alreadySent) return;
+      const periodEnd = normalizeDbDate(unixToIsoDate(invoice.period_end));
+      const rowPeriodEnd = normalizeDbDate(row.period_end);
+      if (row.subscription_renewal_reminder_sent_at && rowPeriodEnd && periodEnd && rowPeriodEnd === periodEnd) {
+        return;
+      }
 
       await sendRenewalReminderEmail(row, invoice);
 
@@ -834,7 +921,7 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
       }
       if (!userId) return;
 
-      if (['canceled', 'unpaid', 'incomplete_expired', 'past_due'].includes(sub.status)) {
+      if (['canceled', 'unpaid', 'incomplete_expired'].includes(sub.status)) {
         await downgradeToStarter(userId);
         return;
       }
@@ -1029,6 +1116,10 @@ export function createStripeBilling({ sql, stripe, resendApi, fromEmail, formatR
     ensurePeriod,
     canSendEmail,
     canSendSms,
+    tryConsumeEmailSlot,
+    releaseEmailSlot,
+    tryConsumeSmsSlot,
+    releaseSmsSlot,
     incrementEmail,
     incrementSms,
     handleStripeWebhookEvent,

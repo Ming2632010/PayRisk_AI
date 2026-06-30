@@ -124,6 +124,10 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
     action: 'reminder' | 'offer';
   } | null>(null);
 
+  function isSendingCustomer(customerId: number) {
+    return sendingState?.customerId === customerId;
+  }
+
   async function handleSendReminder(customer: Customer) {
     setSendingState({ customerId: customer.id, action: 'reminder' });
     try {
@@ -256,7 +260,7 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
                     </div>
                     <button
                       onClick={() => handleSendReminder(customer)}
-                      disabled={sendingState !== null}
+                      disabled={isSendingCustomer(customer.id)}
                       className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap"
                     >
                       {sendingState?.customerId === customer.id && sendingState.action === 'reminder'
@@ -308,7 +312,7 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
                     </div>
                     <button
                       onClick={() => handleSendOffer(customer)}
-                      disabled={sendingState !== null}
+                      disabled={isSendingCustomer(customer.id)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap"
                     >
                       {sendingState?.customerId === customer.id && sendingState.action === 'offer'
