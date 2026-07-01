@@ -35,6 +35,7 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
     notContactedCount: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     loadCustomers();
@@ -42,12 +43,16 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
 
   async function loadCustomers() {
     try {
+      setLoadError(null);
       const data = await api.customers.list();
       const list = (data || []) as Customer[];
       setCustomers(list);
       calculateMetrics(list);
     } catch (error) {
       console.error('Error loading customers:', error);
+      setLoadError(
+        error instanceof Error ? error.message : 'Could not load dashboard data. Check your connection and try again.'
+      );
     } finally {
       setLoading(false);
     }
@@ -158,6 +163,26 @@ export function Dashboard({ onOpenPlanPage }: DashboardProps) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-gray-500">Loading dashboard...</div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 px-4 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-500 mb-3" />
+        <p className="text-gray-800 font-medium mb-1">Could not load dashboard</p>
+        <p className="text-sm text-gray-600 mb-4 max-w-md">{loadError}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoading(true);
+            loadCustomers();
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+        >
+          Try again
+        </button>
       </div>
     );
   }

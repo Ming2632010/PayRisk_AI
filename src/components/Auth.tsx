@@ -43,6 +43,11 @@ export function Auth({ onAuthSuccess }: AuthProps) {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Sign up failed');
+        if (data.token && data.user) {
+          setAuth(data.token, data.user);
+          onAuthSuccess();
+          return;
+        }
         setMessage('Account created! Sign in below.');
         setAcceptedTerms(false);
         setMode('signin');

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { neon } from '@neondatabase/serverless';
@@ -21,6 +22,43 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 /** Initialized after Resend helpers; used by Stripe webhook and subscription routes. */
 let billing = null;
 
+function buildAllowedOrigins() {
+  const origins = new Set([
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:4173',
+    'http://127.0.0.1:4173',
+  ]);
+  const front = String(FRONTEND_URL).trim().replace(/\/$/, '');
+  if (front) origins.add(front);
+  const extra = process.env.CORS_ORIGINS;
+  if (extra) {
+    for (const part of extra.split(',')) {
+      const o = part.trim().replace(/\/$/, '');
+      if (o) origins.add(o);
+    }
+  }
+  return origins;
+}
+
+const allowedOrigins = buildAllowedOrigins();
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again in a few minutes.' },
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many password reset requests. Please try again later.' },
+});
+
 if (!process.env.NEON_DATABASE_URL) {
   console.error('Missing NEON_DATABASE_URL');
   process.exit(1);
@@ -30,7 +68,19 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
-app.use(cors({ origin: true, credentials: true }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Same-origin, curl, Stripe webhooks, and server-to-server calls omit Origin.
+      if (!origin) return callback(null, true);
+      const normalized = origin.replace(/\/$/, '');
+      if (allowedOrigins.has(normalized)) return callback(null, true);
+      console.warn('CORS blocked origin:', origin);
+      return callback(null, false);
+    },
+    credentials: true,
+  }),
+);
 
 // Stripe webhook needs raw body for signature verification (must be before express.json())
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -74,7 +124,7 @@ function authMiddleware(req, res, next) {
 }
 
 // --- Auth (no authMiddleware) ---
-app.post('/auth/signup', async (req, res) => {
+app.post('/auth/signup', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -108,7 +158,7 @@ app.post('/auth/signup', async (req, res) => {
   }
 });
 
-app.post('/auth/login', async (req, res) => {
+app.post('/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -132,7 +182,7 @@ const FORGOT_PASSWORD_RESPONSE = {
   message: 'If an account exists for that email, you will receive a password reset link shortly.',
 };
 
-app.post('/auth/forgot-password', async (req, res) => {
+app.post('/auth/forgot-password', forgotPasswordLimiter, async (req, res) => {
   try {
     const email = (req.body?.email && String(req.body.email).trim().toLowerCase()) || '';
     if (!email || !email.includes('@')) {
@@ -186,7 +236,7 @@ app.post('/auth/forgot-password', async (req, res) => {
   }
 });
 
-app.post('/auth/reset-password', async (req, res) => {
+app.post('/auth/reset-password', authLimiter, async (req, res) => {
   try {
     const rawToken = req.body?.token != null ? String(req.body.token) : '';
     const password = req.body?.password != null ? String(req.body.password) : '';

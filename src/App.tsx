@@ -1,6 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Shield, LayoutDashboard, Users, Mail, LogOut, Sliders, CreditCard, Bell, Building2 } from 'lucide-react';
+import {
+  Shield,
+  LayoutDashboard,
+  Users,
+  Mail,
+  LogOut,
+  Sliders,
+  CreditCard,
+  Bell,
+  Building2,
+  Menu,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { getToken, clearAuth } from './lib/auth';
 import { api, type DueTodayResponse } from './lib/api';
 import type { AuthUser } from './lib/auth';
@@ -23,6 +36,15 @@ const VALID_PAGES: Page[] = [
   'plan',
 ];
 
+const NAV_ITEMS: { id: Page; label: string; icon: LucideIcon }[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'customers', label: 'Customers', icon: Users },
+  { id: 'email-settings', label: 'Email Templates', icon: Mail },
+  { id: 'invoice', label: 'Business profile', icon: Building2 },
+  { id: 'custom-rules', label: 'Custom Rules', icon: Sliders },
+  { id: 'plan', label: 'Plan', icon: CreditCard },
+];
+
 /** Keep the address bar in sync with the active section (Stripe redirects use ?page=plan&cancel=1, etc.). */
 function syncPageToUrl(page: Page) {
   const url = new URL(window.location.href);
@@ -43,6 +65,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [dueToday, setDueToday] = useState<DueTodayResponse | null>(null);
   const [businessName, setBusinessName] = useState<string>('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     checkUser();
@@ -88,6 +111,7 @@ function App() {
 
   function navigateTo(page: Page) {
     setCurrentPage(page);
+    setMobileMenuOpen(false);
     syncPageToUrl(page);
   }
 
@@ -119,6 +143,17 @@ function App() {
   function handleSignOut() {
     clearAuth();
     setUser(null);
+    setMobileMenuOpen(false);
+  }
+
+  function navButtonClass(active: boolean, fullWidth = false) {
+    return [
+      'flex items-center gap-2 px-3 py-2.5 rounded-lg transition-colors text-sm',
+      fullWidth ? 'w-full text-left' : '',
+      active ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-50',
+    ]
+      .filter(Boolean)
+      .join(' ');
   }
 
   if (loading) {
@@ -135,107 +170,96 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <nav className="bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-8">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-2 shrink-0">
                 <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                   <Shield className="w-5 h-5 text-white" />
                 </div>
-                <span className="text-xl font-bold text-gray-900">PayRisk AI</span>
+                <span className="text-lg sm:text-xl font-bold text-gray-900 truncate">PayRisk AI</span>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => navigateTo('dashboard')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                    currentPage === 'dashboard'
-                      ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <LayoutDashboard className="w-4 h-4" />
-                  Dashboard
-                </button>
-                <button
-                  onClick={() => navigateTo('customers')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                    currentPage === 'customers'
-                      ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  Customers
-                </button>
-                <button
-                  onClick={() => navigateTo('email-settings')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                    currentPage === 'email-settings'
-                      ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <Mail className="w-4 h-4" />
-                  Email Templates
-                </button>
-                <button
-                  onClick={() => navigateTo('invoice')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                    currentPage === 'invoice'
-                      ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <Building2 className="w-4 h-4" />
-                  Business profile
-                </button>
-                <button
-                  onClick={() => navigateTo('custom-rules')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                    currentPage === 'custom-rules'
-                      ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <Sliders className="w-4 h-4" />
-                  Custom Rules
-                </button>
-                <button
-                  onClick={() => navigateTo('plan')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                    currentPage === 'plan'
-                      ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <CreditCard className="w-4 h-4" />
-                  Plan
-                </button>
+
+              <div className="hidden lg:flex gap-1 ml-4">
+                {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => navigateTo(id)}
+                    className={navButtonClass(currentPage === id)}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="whitespace-nowrap">{label}</span>
+                  </button>
+                ))}
               </div>
             </div>
-            <div className="flex items-center gap-4">
+
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
               <div
-                className="text-right leading-tight"
+                className="hidden sm:block text-right leading-tight max-w-[10rem] md:max-w-xs"
                 title={businessName ? `Signed in as ${user.email}` : undefined}
               >
-                <div className="text-sm font-medium text-gray-900">
+                <div className="text-sm font-medium text-gray-900 truncate">
                   {businessName || user.email}
                 </div>
                 {businessName && (
-                  <div className="text-xs text-gray-500">{user.email}</div>
+                  <div className="text-xs text-gray-500 truncate">{user.email}</div>
                 )}
               </div>
               <button
+                type="button"
                 onClick={handleSignOut}
-                className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                className="hidden sm:flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
               >
                 <LogOut className="w-4 h-4" />
-                Sign Out
+                <span className="hidden md:inline">Sign Out</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((open) => !open)}
+                className="lg:hidden p-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                aria-expanded={mobileMenuOpen}
+                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              >
+                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
             </div>
           </div>
         </div>
+
+        {mobileMenuOpen && (
+          <div className="lg:hidden border-t border-gray-200 bg-white px-4 py-3 space-y-1">
+            <div className="sm:hidden pb-2 mb-2 border-b border-gray-100">
+              <div className="text-sm font-medium text-gray-900 truncate">
+                {businessName || user.email}
+              </div>
+              {businessName && (
+                <div className="text-xs text-gray-500 truncate">{user.email}</div>
+              )}
+            </div>
+            {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => navigateTo(id)}
+                className={navButtonClass(currentPage === id, true)}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                {label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="flex sm:hidden items-center gap-2 w-full text-left px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-50 text-sm"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </div>
+        )}
       </nav>
 
       {dueToday && dueToday.count > 0 && (
@@ -248,6 +272,7 @@ function App() {
               </span>
             </div>
             <button
+              type="button"
               onClick={() => navigateTo('customers')}
               className="text-sm font-medium text-amber-800 underline hover:no-underline"
             >
