@@ -80,7 +80,11 @@ export function SmsTermsPage() {
             my business.&rdquo;
           </em>{' '}
           Merchants also agree in our Terms of Service to obtain and retain proof of consent and to
-          message only recipients who have opted in.
+          message only recipients who have opted in. A{' '}
+          <Link to="/sms-opt-in-sample" className="text-blue-600 hover:underline">
+            public sample of end-user and platform opt-in flows
+          </Link>{' '}
+          is available for carrier (A2P 10DLC) review.
         </p>
       </section>
 

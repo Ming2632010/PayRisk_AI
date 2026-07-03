@@ -5,6 +5,7 @@ import App from './App';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { SmsTermsPage } from './pages/SmsTermsPage';
+import { SmsOptInSamplePage } from './pages/SmsOptInSamplePage';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
@@ -14,6 +15,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsOfServicePage />} />
         <Route path="/sms-terms" element={<SmsTermsPage />} />
+        <Route path="/sms-opt-in-sample" element={<SmsOptInSamplePage />} />
         <Route path="*" element={<App />} />
       </Routes>
     </BrowserRouter>
