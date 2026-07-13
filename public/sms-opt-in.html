@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SMS Opt-In — PayRisk AI</title>
+  <meta name="description" content="How end users consent to payment and account-related SMS messages sent through PayRisk AI. For A2P 10DLC campaign review." />
+  <meta name="robots" content="index,follow" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(to bottom right, #eff6ff, #ffffff, #f0fdf4);
+      color: #374151;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    header {
+      background: rgba(255,255,255,.9);
+      border-bottom: 1px solid #e5e7eb;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; color: #111827; text-decoration: none; }
+    .logo {
+      width: 32px; height: 32px; background: #2563eb; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px;
+    }
+    nav a { color: #2563eb; text-decoration: none; font-size: 14px; margin-left: 16px; }
+    nav a:hover { text-decoration: underline; }
+    main { max-width: 720px; margin: 0 auto; padding: 40px 24px 64px; }
+    h1 { font-size: 28px; color: #111827; margin-bottom: 8px; }
+    .updated { font-size: 14px; color: #6b7280; margin-bottom: 28px; }
+    h2 { font-size: 18px; color: #111827; margin: 32px 0 12px; }
+    p, li { font-size: 15px; margin-bottom: 12px; }
+    ul { padding-left: 22px; margin-bottom: 16px; }
+    a { color: #2563eb; }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 20px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    }
+    .card-label {
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; color: #6b7280; margin-bottom: 16px;
+    }
+    label.field { display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+    input[type="tel"] {
+      width: 100%; max-width: 320px; padding: 10px 12px;
+      border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: #f9fafb;
+    }
+    .consent {
+      display: flex; align-items: flex-start; gap: 12px;
+      margin-top: 16px; padding: 14px 16px;
+      border: 1px solid #fde68a; background: #fffbeb; border-radius: 8px;
+    }
+    .consent input { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; }
+    .consent p { font-size: 14px; margin: 0; color: #374151; }
+    .kw {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #f3f4f6; padding: 1px 6px; border-radius: 4px; font-size: 13px; font-weight: 600;
+    }
+    footer {
+      max-width: 720px; margin: 0 auto; padding: 0 24px 48px;
+      font-size: 13px; color: #6b7280;
+    }
+    footer a { margin-right: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="https://payriskai.com/">
+      <span class="logo">P</span>
+      PayRisk AI
+    </a>
+    <nav>
+      <a href="https://payriskai.com/privacy">Privacy</a>
+      <a href="https://payriskai.com/terms">Terms</a>
+      <a href="https://payriskai.com/sms-terms">SMS Terms</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>SMS Opt-In / Call to Action</h1>
+    <p class="updated">Public documentation for US A2P 10DLC campaign review · Last updated: July 14, 2026</p>
+
+    <p>
+      <strong>PayRisk AI</strong> is a business software platform. Merchants use PayRisk AI to send
+      <strong>payment and account-related text messages</strong> (invoice reminders, due-date notices,
+      overdue balance notices) to their own customers. Messages are transactional / account
+      notifications — not marketing promotions. Message frequency varies. Message and data rates may apply.
+    </p>
+    <p>
+      PayRisk AI does <strong>not</strong> use a text-in keyword opt-in. End users consent with the
+      merchant. Before any SMS is sent, the merchant must confirm that consent in PayRisk AI.
+    </p>
+
+    <h2>1. Primary opt-in method — website / digital form</h2>
+    <p>
+      End users opt in on the merchant’s website, customer portal, digital intake form, contract, or
+      invoice by providing a mobile number and checking an <strong>unchecked-by-default</strong>
+      consent box. The customer can complete the form without checking the box; SMS is not enabled
+      unless they actively opt in.
+    </p>
+    <p>Consent language shown to the end user (example):</p>
+
+    <div class="card" id="opt-in-form">
+      <div class="card-label">End-user opt-in form (merchant-facing template)</div>
+      <label class="field" for="phone">Mobile phone number</label>
+      <input id="phone" type="tel" value="+1 (555) 123-4567" readonly />
+      <div class="consent">
+        <!-- Unchecked by default — required for A2P compliance -->
+        <input type="checkbox" id="sms-consent" />
+        <p>
+          <label for="sms-consent">
+            I agree to receive payment and account-related text messages from
+            <strong>Example Merchant LLC</strong> (via PayRisk AI). Message frequency varies.
+            Message and data rates may apply. Reply <span class="kw">STOP</span> to opt out and
+            <span class="kw">HELP</span> for help.
+            <a href="https://payriskai.com/privacy">Privacy Policy</a>,
+            <a href="https://payriskai.com/terms">Terms of Service</a>, and
+            <a href="https://payriskai.com/sms-terms">SMS Terms</a>.
+          </label>
+        </p>
+      </div>
+    </div>
+
+    <h2>2. Platform enforcement (before any SMS is sent)</h2>
+    <p>
+      After the merchant obtains consent from the customer, the merchant adds the phone number in
+      PayRisk AI. The merchant must check an <strong>unchecked-by-default</strong> attestation box.
+      SMS cannot be sent without this confirmation.
+    </p>
+
+    <div class="card">
+      <div class="card-label">PayRisk AI — Add / Edit Customer (merchant attestation)</div>
+      <label class="field" for="merchant-phone">Phone</label>
+      <input id="merchant-phone" type="tel" value="+1 (555) 987-6543" readonly />
+      <div class="consent">
+        <input type="checkbox" id="merchant-attestation" />
+        <p>
+          <label for="merchant-attestation">
+            I confirm this contact has agreed to receive payment and account-related SMS from my
+            business. Required when you add or change the phone number, and to use Send SMS.
+            See <a href="https://payriskai.com/terms">Terms of Service</a>.
+          </label>
+        </p>
+      </div>
+    </div>
+
+    <h2>3. Opt-out and help</h2>
+    <ul>
+      <li>Reply <span class="kw">STOP</span>, <span class="kw">STOPALL</span>, <span class="kw">UNSUBSCRIBE</span>, <span class="kw">CANCEL</span>, <span class="kw">END</span>, or <span class="kw">QUIT</span> to opt out.</li>
+      <li>Reply <span class="kw">HELP</span> for help, or email <a href="mailto:info@payriskai.com">info@payriskai.com</a>.</li>
+    </ul>
+
+    <h2>4. Privacy and mobile number sharing</h2>
+    <p>
+      Mobile phone numbers and SMS opt-in data are <strong>not sold, rented, or shared</strong> with
+      third parties or affiliates for their own marketing or promotional purposes. Full details:
+      <a href="https://payriskai.com/privacy">https://payriskai.com/privacy</a>.
+    </p>
+
+    <h2>5. Required links for reviewers</h2>
+    <ul>
+      <li>This Call to Action / Opt-in page: <a href="https://payriskai.com/sms-opt-in.html">https://payriskai.com/sms-opt-in.html</a></li>
+      <li>Privacy Policy: <a href="https://payriskai.com/privacy">https://payriskai.com/privacy</a></li>
+      <li>Terms of Service: <a href="https://payriskai.com/terms">https://payriskai.com/terms</a></li>
+      <li>SMS Terms: <a href="https://payriskai.com/sms-terms">https://payriskai.com/sms-terms</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <a href="https://payriskai.com/">payriskai.com</a>
+    <a href="https://payriskai.com/privacy">Privacy</a>
+    <a href="https://payriskai.com/terms">Terms</a>
+    <a href="https://payriskai.com/sms-terms">SMS Terms</a>
+    <a href="mailto:info@payriskai.com">info@payriskai.com</a>
+  </footer>
+</body>
+</html>

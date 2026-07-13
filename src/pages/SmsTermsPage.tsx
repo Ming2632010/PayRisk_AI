@@ -81,10 +81,14 @@ export function SmsTermsPage() {
           </em>{' '}
           Merchants also agree in our Terms of Service to obtain and retain proof of consent and to
           message only recipients who have opted in. A{' '}
+          <a href="https://payriskai.com/sms-opt-in.html" className="text-blue-600 hover:underline">
+            public Call-to-Action / opt-in page
+          </a>{' '}
+          (static HTML for carrier review) and a{' '}
           <Link to="/sms-opt-in-sample" className="text-blue-600 hover:underline">
-            public sample of end-user and platform opt-in flows
+            detailed sample of end-user and platform opt-in flows
           </Link>{' '}
-          is available for carrier (A2P 10DLC) review.
+          are available for A2P 10DLC review.
         </p>
       </section>
 

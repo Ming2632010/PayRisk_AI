@@ -16,6 +16,17 @@ export function SmsOptInSamplePage() {
           {SITE_NAME} does not use a text-in keyword; consent is collected by each merchant from
           their own customers.
         </p>
+        <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <strong className="font-semibold">For Twilio / TCR reviewers:</strong> use the static
+          Call-to-Action page (no JavaScript required):{' '}
+          <a
+            href="https://payriskai.com/sms-opt-in.html"
+            className="font-medium text-blue-700 underline"
+          >
+            https://payriskai.com/sms-opt-in.html
+          </a>
+          .
+        </p>
       </section>
 
       <section>

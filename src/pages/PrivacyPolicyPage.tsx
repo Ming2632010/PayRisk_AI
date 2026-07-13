@@ -92,9 +92,10 @@ export function PrivacyPolicyPage() {
         </p>
         <ul className="mt-3 list-disc pl-5 space-y-2">
           <li>
-            <strong className="font-medium text-gray-900">No sale of mobile contact data.</strong> We do
-            not sell, rent, or share mobile phone numbers collected through the Service with third
-            parties for their own marketing or promotional purposes.
+            <strong className="font-medium text-gray-900">No sale or sharing of mobile contact data.</strong>{' '}
+            We do not sell, rent, or share mobile phone numbers, SMS opt-in data, or consent records
+            collected through the Service with third parties or affiliates for their own marketing or
+            promotional purposes.
           </li>
           <li>
             <strong className="font-medium text-gray-900">Message frequency.</strong> Message frequency
