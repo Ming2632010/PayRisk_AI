@@ -87,8 +87,9 @@ export function PrivacyPolicyPage() {
       <section>
         <h2 className="text-lg font-semibold text-gray-900">6. SMS and mobile messaging (program disclosures)</h2>
         <p className="mt-3">
-          This section applies to text messages sent by merchants through {SITE_NAME} to their
-          customers (payment and account-related reminders).
+          This section applies to transactional account-notification text messages sent by{' '}
+          {SITE_NAME} (a software company with a direct SaaS offering) to end customers who have
+          opted in (payment and account-related reminders).
         </p>
         <ul className="mt-3 list-disc pl-5 space-y-2">
           <li>

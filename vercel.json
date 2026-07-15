@@ -1,3 +1,15 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "redirects": [
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html",
+      "permanent": false
+    },
+    {
+      "source": "/terms",
+      "destination": "/terms.html",
+      "permanent": false
+    }
+  ],
+  "rewrites": [{ "source": "/((?!privacy\\.html|terms\\.html|sms-opt-in\\.html).*)", "destination": "/index.html" }]
 }
