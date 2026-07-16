@@ -622,31 +622,48 @@ export function CustomerManagement({ userId, onDueTodayRefresh, onOpenPlanPage }
                 International format (with <code>+</code>) is best. Local numbers are accepted and
                 will be expanded using the country code from Business profile.
               </p>
-              {formData.phone.trim() && (
-                <div className="mt-3 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-3">
-                  <input
-                    id="customer-sms-consent"
-                    type="checkbox"
-                    checked={smsConsentConfirmed}
-                    onChange={(e) => setSmsConsentConfirmed(e.target.checked)}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <label htmlFor="customer-sms-consent" className="text-sm text-gray-700 leading-snug">
-                    I confirm this contact has agreed to receive payment and account-related SMS from
-                    my business. Required when you <strong className="font-medium">add or change</strong>{' '}
-                    the phone number, and to use <strong className="font-medium">Send SMS</strong>. See{' '}
-                    <Link
-                      to="/terms"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline font-medium"
-                    >
-                      Terms of Service
-                    </Link>
-                    .
-                  </label>
-                </div>
-              )}
+              <div
+                className={`mt-3 flex items-start gap-3 rounded-lg border px-3 py-3 ${
+                  formData.phone.trim()
+                    ? 'border-amber-200 bg-amber-50/80'
+                    : 'border-gray-200 bg-gray-50'
+                }`}
+              >
+                <input
+                  id="customer-sms-consent"
+                  type="checkbox"
+                  checked={smsConsentConfirmed}
+                  disabled={!formData.phone.trim()}
+                  onChange={(e) => setSmsConsentConfirmed(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                />
+                <label
+                  htmlFor="customer-sms-consent"
+                  className={`text-sm leading-snug ${
+                    formData.phone.trim() ? 'text-gray-700' : 'text-gray-500'
+                  }`}
+                >
+                  I confirm this contact has agreed to receive payment and account-related SMS from
+                  my business. Required when you{' '}
+                  <strong className="font-medium">add or change</strong> the phone number, and to use{' '}
+                  <strong className="font-medium">Send SMS</strong>. See{' '}
+                  <Link
+                    to="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline font-medium"
+                  >
+                    Terms of Service
+                  </Link>
+                  .
+                  {!formData.phone.trim() && (
+                    <span className="mt-1 block text-xs text-gray-500">
+                      Enter a phone number above to enable this checkbox. It stays unchecked by
+                      default.
+                    </span>
+                  )}
+                </label>
+              </div>
             </div>
 
             <div className="md:col-span-2 lg:col-span-3 mt-2">
