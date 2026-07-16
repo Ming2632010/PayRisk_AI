@@ -71,6 +71,19 @@
       font-size: 13px; color: #6b7280;
     }
     footer a { margin-right: 12px; }
+    .screenshot {
+      width: 100%;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      margin-top: 16px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+    }
+    .screenshot-caption {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 8px;
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
@@ -88,7 +101,7 @@
 
   <main>
     <h1>SMS Opt-In / Call to Action</h1>
-    <p class="updated">Public documentation for US A2P 10DLC campaign review · Last updated: July 16, 2026</p>
+    <p class="updated">Public documentation for US A2P 10DLC campaign review · Last updated: July 17, 2026</p>
 
     <p>
       <strong>PayRisk AI</strong> is a software company with a <strong>direct SaaS offering</strong> at
@@ -118,10 +131,9 @@
         <input type="checkbox" id="sms-consent" />
         <p>
           <label for="sms-consent">
-            I agree to receive payment and account-related text messages from
-            <strong>Example Merchant LLC</strong> via <strong>PayRisk AI</strong>. Message frequency
-            varies. Message and data rates may apply. Reply <span class="kw">STOP</span> to opt out and
-            <span class="kw">HELP</span> for help.
+            I agree to receive payment and account-related text messages from my merchant via
+            PayRisk AI. Message frequency varies. Message and data rates may apply. Reply
+            <span class="kw">STOP</span> to opt out and <span class="kw">HELP</span> for help.
             <a href="https://payriskai.com/privacy.html">Privacy Policy</a>,
             <a href="https://payriskai.com/terms.html">Terms of Service</a>.
           </label>
@@ -134,6 +146,22 @@
       After consent is obtained, the merchant adds the phone number in PayRisk AI and checks an
       <strong>unchecked-by-default</strong> attestation box. SMS cannot be sent without this confirmation.
     </p>
+    <p>
+      Below is an example of the merchant attestation step in the PayRisk AI platform (required before
+      any SMS is sent).
+    </p>
+    <img
+      class="screenshot"
+      src="/sms-merchant-attestation.png"
+      alt="PayRisk AI Add Customer form showing unchecked SMS consent attestation checkbox"
+      width="880"
+      height="620"
+    />
+    <p class="screenshot-caption">
+      Screenshot: Add / Edit Customer — SMS consent checkbox unchecked by default.
+      Full-size image:
+      <a href="https://payriskai.com/sms-merchant-attestation.png">https://payriskai.com/sms-merchant-attestation.png</a>
+    </p>
 
     <div class="card">
       <div class="card-label">PayRisk AI — Add / Edit Customer (merchant attestation)</div>
@@ -144,8 +172,8 @@
         <p>
           <label for="merchant-attestation">
             I confirm this contact has agreed to receive payment and account-related SMS from my
-            business via PayRisk AI. Required when you add or change the phone number, and to use
-            Send SMS. See <a href="https://payriskai.com/terms.html">Terms of Service</a>.
+            business. Required when you add or change the phone number, and to use Send SMS. See
+            <a href="https://payriskai.com/terms.html">Terms of Service</a>.
           </label>
         </p>
       </div>
