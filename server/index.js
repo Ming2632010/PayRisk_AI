@@ -834,7 +834,10 @@ app.post('/api/customers/:id/send-sms', async (req, res) => {
       contact_email: contactEmail,
     };
     const bodySource = smsTpl.body || DEFAULT_SMS.body;
-    const body = applySmsTemplate(bodySource, vars);
+    const renderedBody = applySmsTemplate(bodySource, vars);
+    // A2P campaign samples and actual traffic must identify the registered PayRisk AI brand.
+    // Enforce this at send time so older/custom merchant templates remain compliant too.
+    const body = ensureSmsBrandIdentification(renderedBody, businessName);
 
     const payload = twilioMessagingServiceSid
       ? { body, messagingServiceSid: twilioMessagingServiceSid, to }
@@ -917,7 +920,7 @@ function applyEmailTemplate(body, vars) {
  * customer/business names. Users can edit in Email Templates → SMS template.
  */
 const DEFAULT_SMS = {
-  body: 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. - {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.',
+  body: 'PayRisk AI for {{business_name}}: Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.',
 };
 
 /** Plain-text template renderer: replaces {{var}} tokens, no HTML escaping, no <br>. */
@@ -929,6 +932,17 @@ function applySmsTemplate(body, vars) {
   // Collapse runs of whitespace/newlines that result from empty variables so messages don't
   // contain awkward double spaces.
   return out.replace(/[ \t]+/g, ' ').replace(/ *\n+ */g, '\n').trim();
+}
+
+/**
+ * Identifies the registered A2P brand in every outgoing SMS, including messages generated from
+ * legacy or customized templates saved before PayRisk AI branding became mandatory.
+ */
+function ensureSmsBrandIdentification(body, businessName) {
+  const rendered = String(body ?? '').trim();
+  if (/\bPayRisk\s+AI\b/i.test(rendered)) return rendered;
+  const merchant = String(businessName || 'your merchant').trim();
+  return `PayRisk AI for ${merchant}: ${rendered}`;
 }
 
 async function loadSmsTemplate(userId) {

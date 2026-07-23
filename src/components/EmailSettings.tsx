@@ -8,7 +8,13 @@ const DEFAULT_OFFER_SUBJECT = 'Special offer just for you';
 const DEFAULT_OFFER_BODY = "Hi {{customer_name}},\n\nThank you for being a valued customer. Here's a special offer just for you: {{offer_details}}.\n\nBest regards,\n{{your_name}}";
 const DEFAULT_INVOICE_SUBJECT = 'Invoice {{invoice_number}} from {{your_name}} – {{total}}';
 const DEFAULT_INVOICE_BODY = 'Hi {{customer_name}},\n\nPlease find your invoice {{invoice_number}} below. The total amount due is {{total}}{{due_date}}.\n\nThanks,\n{{your_name}}';
-const DEFAULT_SMS_BODY = 'Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. - {{business_name}}. Reply STOP to opt out. Msg&data rates may apply.';
+const DEFAULT_SMS_BODY = 'PayRisk AI for {{business_name}}: Hi {{customer_name}}, friendly reminder: {{amount}} is due{{due_date}}. Contact {{contact_name}} {{contact_number}}. Reply STOP to opt out, HELP for help. Msg&data rates may apply.';
+
+function ensurePayRiskSmsBrand(body: string): string {
+  const trimmed = body.trim();
+  if (/\bPayRisk\s+AI\b/i.test(trimmed)) return trimmed;
+  return `PayRisk AI for {{business_name}}: ${trimmed}`;
+}
 
 /**
  * Approximate Twilio Smart Encoding: replaces common “fancy” punctuation with GSM-7 equivalents
@@ -65,7 +71,7 @@ export default function EmailSettings() {
         setOfferBody(templates.offer.body);
         setInvoiceSubject(inv.subject);
         setInvoiceBody(inv.body);
-        setSmsBody(sms.body || DEFAULT_SMS_BODY);
+        setSmsBody(ensurePayRiskSmsBrand(sms.body || DEFAULT_SMS_BODY));
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load templates'))
       .finally(() => setLoading(false));
@@ -74,14 +80,16 @@ export default function EmailSettings() {
   const handleSave = async () => {
     setError(null);
     try {
+      const compliantSmsBody = ensurePayRiskSmsBrand(smsBody);
       await Promise.all([
         api.emailTemplates.save({
           reminder: { subject: reminderSubject, body: reminderBody },
           offer: { subject: offerSubject, body: offerBody },
         }),
         api.invoiceEmailTemplate.save({ subject: invoiceSubject, body: invoiceBody }),
-        api.smsTemplate.save({ body: smsBody }),
+        api.smsTemplate.save({ body: compliantSmsBody }),
       ]);
+      setSmsBody(compliantSmsBody);
       setSaveStatus('✅ Templates saved. They will be used when you send reminder, offer, invoice, or SMS.');
       setTimeout(() => setSaveStatus(''), 4000);
     } catch (e) {
@@ -296,9 +304,9 @@ export default function EmailSettings() {
         <p className="text-sm text-gray-500 mb-4">
           Used when you click <strong>Send SMS</strong> on a customer. Because SMS is send-only,
           include your contact details (name, number, or email) so customers can reply through
-          another channel. The default includes <strong>Reply STOP to opt out</strong> and may use
-          two segments if long; shorten names to stay near <strong>160 characters</strong> for one
-          segment.
+          another channel. Every SMS must identify <strong>PayRisk AI</strong> and your business;
+          PayRisk AI branding is added automatically if it is removed. The default includes{' '}
+          <strong>STOP/HELP</strong> instructions and may use two segments if long.
         </p>
 
         <div className="space-y-4">
