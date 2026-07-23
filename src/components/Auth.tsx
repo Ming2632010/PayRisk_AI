@@ -148,6 +148,15 @@ export function Auth({ onAuthSuccess }: AuthProps) {
             <span className="text-xl font-bold text-gray-900">PayRisk AI</span>
           </div>
 
+          <p className="mb-4">
+            <a
+              href="/business.html"
+              className="inline-flex items-center rounded-full border border-blue-200 bg-white/80 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50"
+            >
+              Public business &amp; SMS program information →
+            </a>
+          </p>
+
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-gray-900 leading-tight">
             Get paid faster and keep customers coming back
           </h1>

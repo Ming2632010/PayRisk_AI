@@ -11,5 +11,10 @@
       "permanent": false
     }
   ],
-  "rewrites": [{ "source": "/((?!privacy\\.html|terms\\.html|sms-opt-in\\.html).*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/((?!business\\.html|privacy\\.html|terms\\.html|sms-opt-in\\.html).*)",
+      "destination": "/index.html"
+    }
+  ]
 }

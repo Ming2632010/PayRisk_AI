@@ -32,9 +32,50 @@
       content="Automated payment & invoice reminders by email and SMS, AI payment-risk scoring, and repurchase prediction for your business."
     />
     <meta name="twitter:image" content="https://payriskai.com/og-image.png" />
+    <style>
+      .public-fallback {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 48px 24px;
+        color: #374151;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+      }
+      .public-fallback h1 { color: #111827; line-height: 1.2; }
+      .public-fallback a { color: #2563eb; }
+      .public-fallback li { margin-bottom: 6px; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        Crawlable public fallback for reviewers and search engines that do not execute JavaScript.
+        React replaces this content when the application loads in a browser.
+      -->
+      <main class="public-fallback">
+        <h1>PayRisk AI — Receivables and Payment Reminder Software</h1>
+        <p>
+          PayRisk AI is a software company with a direct SaaS offering for small businesses.
+          Merchants use PayRisk AI to track receivables, assess payment risk, send transactional
+          payment reminders, and understand customer repurchase intent.
+        </p>
+        <h2>SMS account-notification program</h2>
+        <p>
+          PayRisk AI sends transactional account-notification SMS initiated by merchants to end
+          customers who have opted in. Messages include invoice and balance reminders, due-date
+          notices, overdue notices, and payment confirmations. Messages are not marketing or
+          promotional. Message frequency varies. Message and data rates may apply. Reply STOP to
+          opt out and HELP for help.
+        </p>
+        <ul>
+          <li><a href="/business.html">Public business and messaging-program information</a></li>
+          <li><a href="/sms-opt-in.html">SMS opt-in / Call to Action</a></li>
+          <li><a href="/privacy.html">Privacy Policy</a></li>
+          <li><a href="/terms.html">Terms of Service</a></li>
+        </ul>
+        <p>Contact: <a href="mailto:info@payriskai.com">info@payriskai.com</a></p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
